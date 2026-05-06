@@ -1,0 +1,11 @@
+region,product,amount,date
+East,Widget,150,2024-01-15
+West,Gadget,80,2024-01-16
+East,Widget,220,2024-02-01
+North,Gadget,45,2024-02-10
+East,Gadget,300,2024-03-05
+West,Widget,95,2024-03-12
+South,Gadget,60,2024-03-20
+North,Widget,180,2024-04-01
+East,Widget,400,2024-04-15
+West,Gadget,120,2024-04-30

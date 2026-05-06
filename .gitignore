@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+.egg-info/
+*.egg
+dist/
+build/
+
+.srun/
+*.egg-info/
+
+# Test artifacts
+80
+100
+*session_stats.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+{
+  "app": "Sales Dashboard",
+  "version": "1.2.0",
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "sales_db"
+  },
+  "features": ["reports", "analytics", "export"]
+}
