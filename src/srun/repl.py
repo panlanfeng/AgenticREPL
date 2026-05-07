@@ -12,11 +12,35 @@ try:
         pass
     readline.set_history_length(1000)
     atexit.register(readline.write_history_file, HISTFILE)
+
+    def _tab_completer(text, state):
+        import glob
+        if state == 0:
+            expanded = os.path.expanduser(text)
+            if os.path.isdir(expanded) and not expanded.endswith("/"):
+                expanded += "/"
+            candidates = glob.glob(expanded + "*")
+            candidates = sorted(c for c in candidates if not os.path.basename(c).startswith("."))
+            candidates += sorted(c for c in glob.glob(expanded + ".*") if os.path.basename(c).startswith("."))
+            _tab_completer._matches = candidates
+        try:
+            match = _tab_completer._matches[state]
+            if os.path.isdir(match):
+                return match + "/"
+            return match
+        except IndexError:
+            return None
+
+    _tab_completer._matches = []
+    readline.set_completer(_tab_completer)
+    readline.parse_and_bind("tab: complete")
 except ImportError:
     pass
 
 from .dispatch import dispatcher
 from .context import state
+from .logo import LOGO
+from .llm import llm
 from .repair import repairer, apply_quick_fix
 from .danger import check_danger
 from .executors.python_exec import PythonExecutor
@@ -29,17 +53,17 @@ def main():
     sh_exec = ShellExecutor()
     r_exec = RExecutor()
 
-    print("srun - Smart Run (type 'exit' to quit)")
-    print(f"LLM: {'available' if dispatcher.client else 'unavailable'}")
+    print(LOGO)
+    print(f"LLM: {'available' if llm.client else 'unavailable'}")
     state.save()
 
     while True:
         try:
             remote = sh_exec.remote
             if remote:
-                prompt = f"srun:{remote}$ "
+                prompt = f"{remote}\n\033[1;32msrun>\033[0m "
             else:
-                prompt = f"srun:{os.getcwd()}$ "
+                prompt = f"{os.getcwd()}\n\033[1;32msrun>\033[0m "
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
@@ -104,7 +128,7 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
             return {
                 "success": True, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
-                "fixed_code": current_input if llm_used else None,
+                "fixed_code": current_input if current_input != initial_input else None,
             }
         if attempt >= max_rounds - 1:
             return {
@@ -138,10 +162,10 @@ def _retry_loop_python(initial_input, py_exec, max_rounds=4, initial_llm=False):
         if success:
             state.last_lang = "python"
             return {
-                "success": True, "output": output.strip(),
-                "llm_used": llm_used, "language": "python",
-                "fixed_code": current_input if llm_used else None,
-            }
+                    "success": True, "output": output.strip(),
+                    "llm_used": llm_used, "language": "python",
+                    "fixed_code": current_input if current_input != initial_input else None,
+                }
         if attempt >= max_rounds - 1:
             return {
                 "success": False, "output": output.strip(),
@@ -246,16 +270,16 @@ def print_result(result, elapsed_ms):
     generated = result.get("generated_code")
 
     if fixed:
-        print(f"\033[2m→ {fixed}\033[0m")
+        print(f"\033[1;33m⟳  {fixed}\033[0m")
     if generated:
-        print(f"\033[2m→ {generated}\033[0m")
+        print(f"\033[1;33m⟳  {generated}\033[0m")
 
     if output:
         print(output.rstrip())
 
-    timing = f"[{lang}]" if lang else ""
-    llm_tag = " +LLM" if llm else ""
-    print(f"{timing}{llm_tag} {elapsed_ms:.0f}ms")
+    timing = f"\033[2m[{lang}]\033[0m" if lang else ""
+    llm_tag = " \033[1;33m+LLM\033[0m" if llm else ""
+    print(f"{timing}{llm_tag} \033[2m{elapsed_ms:.0f}ms\033[0m")
 
 
 if __name__ == "__main__":

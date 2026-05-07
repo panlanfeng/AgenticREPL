@@ -1,10 +1,7 @@
 import ast
-import json
 import re
-from openai import OpenAI
-from .config import config
 from .context import state
-from .prompts import DISPATCH_PROMPT_SHORT
+from .llm import llm
 
 SHELL_COMMANDS = {
     "ls", "cd", "cat", "grep", "awk", "sed", "sort", "find", "head", "tail",
@@ -49,9 +46,7 @@ def _looks_like_pseudocode(code):
 
 class Dispatcher:
     def __init__(self):
-        self.client = None
-        if config.has_llm:
-            self.client = OpenAI(api_key=config.api_key, base_url=config.api_base)
+        pass
 
     def classify(self, user_input):
         stripped = user_input.strip()
@@ -106,46 +101,11 @@ class Dispatcher:
             return True
         return False
 
-    def _parse_response(self, text):
-        text = text.strip()
-        try:
-            parsed = json.loads(text)
-            return parsed.get("language", "shell"), parsed.get("code")
-        except json.JSONDecodeError:
-            pass
-        block = re.search(r"```(?:bash|shell|sh)\s*\n?(.+?)```", text, re.DOTALL)
-        if block:
-            return "shell", block.group(1).strip()
-        block = re.search(r"```(?:python|py)\s*\n?(.+?)```", text, re.DOTALL)
-        if block:
-            return "python", block.group(1).strip()
-        return "shell", None
-
     def llm_dispatch(self, user_input):
-        if not self.client:
+        lang, code = llm.run(user_input)
+        if code is None:
             return "shell", user_input
-
-        context_str = state.llm_context()
-        prompt = DISPATCH_PROMPT_SHORT.format(context=context_str)
-
-        try:
-            resp = self.client.chat.completions.create(
-                model=config.model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user_input},
-                ],
-                temperature=0.0,
-                max_tokens=500,
-            )
-            content = resp.choices[0].message.content.strip()
-            lang, code = self._parse_response(content)
-            if code:
-                return lang, code
-            return "shell", user_input
-        except Exception as e:
-            state.last_dispatch_error = str(e)
-            return "shell", user_input
+        return lang or "shell", code
 
 
 dispatcher = Dispatcher()
