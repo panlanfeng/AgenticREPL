@@ -59,7 +59,45 @@ class SessionState:
         self.last_output = ""
         self.last_dispatch_error = None
         self.code_cache = {}
+        self.session_log = []
+        self._turn = 0
+        self._conversation = []
         os.makedirs(STATE_DIR, exist_ok=True)
+
+    def build_conversation_messages(self, system_prompt):
+        messages = [{"role": "system", "content": system_prompt}]
+        for entry in self._conversation:
+            messages.append(entry)
+        return messages
+
+    def add_conversation_turn(self, user_msg, assistant_code, error_output=None):
+        self._conversation.append({"role": "user", "content": user_msg})
+        if error_output:
+            self._conversation.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
+        self._conversation.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
+
+    def log_entry(self, **kwargs):
+        self._turn += 1
+        entry = {"turn": self._turn, "cwd": os.getcwd(), **kwargs}
+        self.session_log.append(entry)
+        if len(self.session_log) > 50:
+            self.session_log = self.session_log[-50:]
+
+    def _tail_lines(self, text, n=10):
+        if not text:
+            return ""
+        lines = text.strip().split("\n")
+        return "\n".join(lines[-n:])
+
+    def log_cache(self, action, key, detail=None):
+        now = __import__("time").time()
+        entry = {"time": int(now), "action": action, "key": key[-20:]}
+        if detail:
+            entry["detail"] = detail
+        # append to a debug log file
+        log_file = os.path.join(STATE_DIR, "debug.log")
+        with open(log_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
     def add_var(self, name, meta):
         self.vars[name] = meta
@@ -100,6 +138,7 @@ class SessionState:
                 "active_df": self.active_df,
                 "last_lang": self.last_lang,
                 "history": self.history[-10:],
+                "log": self.session_log[-20:],
             },
         }
         with open(STATE_FILE, "w") as f:
@@ -132,6 +171,37 @@ class SessionState:
         if self.last_lang:
             lines.append(f"Last language: {self.last_lang}")
         return "\n".join(lines)
+
+    def session_context(self):
+        if not self.session_log:
+            return ""
+        entries = []
+        for e in self.session_log[-15:]:
+            line = self._format_log_line(e)
+            if line:
+                entries.append(line)
+        if not entries:
+            return ""
+        return "## Session\n" + "\n".join(entries)
+
+    def _format_log_line(self, e):
+        t = self._tail_lines(e.get("error", ""), 3)
+        code = e.get("code", "")
+        gen = e.get("llm_generated", "")
+        tp = e.get("type", "?")
+        turn = e.get("turn", 0)
+        ok = "\u2713" if e.get("success") else "\u2717"
+        ms = e.get("elapsed_ms", 0)
+        inp = e.get("input", "")
+
+        if tp == "fast":
+            return f"#{turn} {code} {ok} {ms}ms"
+        if tp == "llm_dispatch":
+            return f"#{turn} \"{inp}\" → {gen} {ok} {ms}ms"
+        if tp == "llm_repair":
+            err_short = t.replace('\n', '; ')[:60] if t else ""
+            return f"#{turn} \"{inp}\" err: {err_short} → fix: {gen} {ok} {ms}ms"
+        return f"#{turn} {inp[:60]} {ok}"
 
 
 state = SessionState()

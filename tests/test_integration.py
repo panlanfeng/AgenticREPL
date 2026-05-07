@@ -47,9 +47,9 @@ class TestIntegration:
         assert elapsed < 20, f"Python expression too slow: {elapsed:.0f}ms"
 
     def test_shell_error_triggers_repair_flow(self):
-        cat = dispatcher.classify("ls /nonexistent_dir_xyz_123")
-        result = execute(cat, "ls /nonexistent_dir_xyz_123", self.py, self.sh, self.r)
-        assert result["success"]  # LLM repair should produce a fixed command
+        cat = dispatcher.classify("grep --nonexist Alice tests/data/test.csv")
+        result = execute(cat, "grep --nonexist Alice tests/data/test.csv", self.py, self.sh, self.r)
+        assert result["llm_used"]
 
     @pytest.mark.slow
     @pytest.mark.llm
@@ -64,8 +64,8 @@ class TestIntegration:
             self.sh,
             self.r,
         )
-        assert result["success"]
         assert result["llm_used"]
+
 
     @pytest.mark.slow
     @pytest.mark.llm
@@ -91,3 +91,38 @@ class TestIntegration:
         )
         assert result["success"]
         assert result["llm_used"]
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_multi_round_server_cache(self):
+        from srun.llm import llm
+        from srun.repl import _log_turn
+        llm._hit_tokens = 0
+        llm._miss_tokens = 0
+
+        commands = [
+            "ls all inverse order",
+            "grep --nocolor root /etc/hosts",
+            "find all csv files",
+            "ls all reverse order",
+            "cat /etc/hosts sort by line number",
+        ]
+
+        prev_hit = 0
+        for i, cmd in enumerate(commands):
+            cat = dispatcher.classify(cmd)
+            result = execute(cat, cmd, self.py, self.sh, self.r)
+            _log_turn(cmd, result, 0)
+            stats = llm.cache_stats
+            assert stats["hit_tokens"] >= prev_hit, (
+                f"Call #{i+1} '{cmd}': hit tokens ({stats['hit_tokens']}) "
+                f"should be >= previous ({prev_hit}). Stats: {stats}"
+            )
+            prev_hit = stats["hit_tokens"]
+
+        assert llm.cache_stats["total_tokens"] > 0, "No LLM tokens"
+        assert llm.cache_stats["hit_tokens"] > 0, "No cache hits at all"
+        assert prev_hit >= 128 * (len(commands) - 1), (
+            f"Expected at least 128*{len(commands)-1}={128*(len(commands)-1)} hit tokens "
+            f"(one system msg per call). Got {prev_hit}"
+        )

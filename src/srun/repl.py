@@ -55,6 +55,46 @@ def main():
 
     print(LOGO)
     print(f"LLM: {'available' if llm.client else 'unavailable'}")
+
+    if len(sys.argv) > 1:
+        _run_file(sys.argv[1], py_exec, sh_exec, r_exec)
+        return
+
+    _run_repl(py_exec, sh_exec, r_exec)
+
+
+def _run_file(path, py_exec, sh_exec, r_exec):
+    if not os.path.isfile(path):
+        print(f"File not found: {path}")
+        return
+    with open(path) as f:
+        lines = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+    if not lines:
+        print("No commands found in file")
+        return
+    print(f"Executing {len(lines)} commands from {path}\n")
+    failed = 0
+    llm_calls = 0
+    total_start = time.perf_counter()
+    for line in lines:
+        start = time.perf_counter()
+        category = dispatcher.classify(line)
+        result = execute(category, line, py_exec, sh_exec, r_exec)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        if result.get("llm_used"):
+            llm_calls += 1
+        if not result["success"]:
+            failed += 1
+        print(f"{'✓' if result['success'] else '✗'} {line[:50]:50s} {elapsed_ms:5.0f}ms")
+        if result.get("fixed_code"):
+            print(f"  → {result['fixed_code']}")
+        elif result.get("generated_code"):
+            print(f"  → {result['generated_code']}")
+    total_ms = int((time.perf_counter() - total_start) * 1000)
+    print(f"\n{len(lines)-failed}/{len(lines)} passed, {llm_calls} LLM calls, {total_ms}ms total")
+
+
+def _run_repl(py_exec, sh_exec, r_exec):
     state.save()
 
     while True:
@@ -95,6 +135,7 @@ def main():
         result = execute(category, user_input, py_exec, sh_exec, r_exec)
         elapsed_ms = (time.perf_counter() - start) * 1000
 
+        _log_turn(user_input, result, elapsed_ms)
         print_result(result, elapsed_ms)
         state.save()
 
@@ -104,6 +145,36 @@ def _handle_ssh(command, sh_exec):
     if error:
         return error
     return f"Connected to {sh_exec.remote} (type 'exit' to disconnect)"
+
+
+def _log_turn(user_input, result, elapsed_ms):
+    fixed = result.get("fixed_code")
+    generated = result.get("generated_code")
+    llm_used = result.get("llm_used", False)
+    success = result.get("success", False)
+    lang = result.get("language", "")
+    repair_errors = result.get("repair_errors", [])
+
+    if llm_used:
+        code = fixed or generated or user_input
+        error_text = "\n".join(repair_errors) if repair_errors else None
+        state.add_conversation_turn(
+            user_msg=f"The user typed: {user_input}",
+            assistant_code=code,
+            error_output=error_text,
+        )
+
+    state.log_entry(
+        type="llm_repair" if (llm_used and fixed) else
+             "llm_dispatch" if (llm_used and generated) else "fast",
+        input=user_input,
+        code=fixed or generated or user_input,
+        llm_generated=fixed or generated,
+        language=lang,
+        success=success,
+        elapsed_ms=int(elapsed_ms),
+        error="\n".join(repair_errors) if repair_errors else None,
+    )
 
 
 def _has_stderr_errors(stderr):
@@ -120,6 +191,7 @@ def _has_stderr_errors(stderr):
 def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
     current_input = initial_input
     llm_used = initial_llm
+    repair_errors = []
     for attempt in range(max_rounds):
         success, output, *rest = sh_exec.execute(current_input)
         stderr = rest[0] if len(rest) > 0 else ""
@@ -129,11 +201,13 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
                 "success": True, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
                 "fixed_code": current_input if current_input != initial_input else None,
+                "repair_errors": repair_errors,
             }
         if attempt >= max_rounds - 1:
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
+                "repair_errors": repair_errors,
             }
         error_msg = output if not success else stderr
         fixed, used_llm = try_repair(current_input, error_msg, "shell")
@@ -141,7 +215,9 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
+                "repair_errors": repair_errors,
             }
+        repair_errors.append(error_msg)
         llm_used = llm_used or used_llm
         danger, desc = check_danger(fixed)
         if danger:
@@ -149,9 +225,10 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
                 "success": False,
                 "output": f"BLOCKED: {desc}\nFixed: {fixed}",
                 "llm_used": llm_used, "language": "shell",
+                "repair_errors": repair_errors,
             }
         current_input = fixed
-    return {"success": False, "output": "max retries", "llm_used": llm_used, "language": "shell"}
+    return {"success": False, "output": "max retries", "llm_used": llm_used, "language": "shell", "repair_errors": repair_errors}
 
 
 def _retry_loop_python(initial_input, py_exec, max_rounds=4, initial_llm=False):
@@ -279,7 +356,12 @@ def print_result(result, elapsed_ms):
 
     timing = f"\033[2m[{lang}]\033[0m" if lang else ""
     llm_tag = " \033[1;33m+LLM\033[0m" if llm else ""
-    print(f"{timing}{llm_tag} \033[2m{elapsed_ms:.0f}ms\033[0m")
+    from .llm import llm
+    stats = llm.cache_stats
+    cache_part = ""
+    if stats["total_tokens"] > 0:
+        cache_part = f" cache:{stats['rate']:.0%}"
+    print(f"{timing}{llm_tag} \033[2m{elapsed_ms:.0f}ms{cache_part}\033[0m")
 
 
 if __name__ == "__main__":
