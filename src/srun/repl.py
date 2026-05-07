@@ -1,6 +1,20 @@
 import os
 import sys
 import time
+import atexit
+
+try:
+    import readline
+    HISTFILE = os.path.join(os.path.expanduser("~"), ".srun", "history")
+    try:
+        readline.read_history_file(HISTFILE)
+    except FileNotFoundError:
+        pass
+    readline.set_history_length(1000)
+    atexit.register(readline.write_history_file, HISTFILE)
+except ImportError:
+    pass
+
 from .dispatch import dispatcher
 from .context import state
 from .repair import repairer, apply_quick_fix
@@ -21,15 +35,36 @@ def main():
 
     while True:
         try:
-            user_input = input(f"srun:{os.getcwd()}$ ").strip()
+            remote = sh_exec.remote
+            if remote:
+                prompt = f"srun:{remote}$ "
+            else:
+                prompt = f"srun:{os.getcwd()}$ "
+            user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
+            if sh_exec.remote:
+                sh_exec.disconnect()
+                print("Disconnected from remote.")
+                continue
             break
 
         if not user_input:
             continue
-        if user_input.lower() in ("exit", "quit"):
+
+        if sh_exec.remote and user_input.lower() in ("exit", "quit"):
+            sh_exec.disconnect()
+            print("Disconnected from remote.")
+            continue
+        if not sh_exec.remote and user_input.lower() in ("exit", "quit"):
             break
+
+        if not sh_exec.remote and user_input.startswith("ssh "):
+            result = _handle_ssh(user_input, sh_exec)
+            if result is not None:
+                print(result)
+                state.save()
+                continue
 
         start = time.perf_counter()
         category = dispatcher.classify(user_input)
@@ -38,6 +73,13 @@ def main():
 
         print_result(result, elapsed_ms)
         state.save()
+
+
+def _handle_ssh(command, sh_exec):
+    error = sh_exec.connect_ssh(command)
+    if error:
+        return error
+    return f"Connected to {sh_exec.remote} (type 'exit' to disconnect)"
 
 
 def _has_stderr_errors(stderr):
@@ -200,6 +242,13 @@ def print_result(result, elapsed_ms):
     output = result.get("output", "")
     llm = result.get("llm_used", False)
     lang = result.get("language", "")
+    fixed = result.get("fixed_code")
+    generated = result.get("generated_code")
+
+    if fixed:
+        print(f"\033[2m→ {fixed}\033[0m")
+    if generated:
+        print(f"\033[2m→ {generated}\033[0m")
 
     if output:
         print(output.rstrip())
