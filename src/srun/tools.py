@@ -233,11 +233,11 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a shell command. Call this when you have the correct command the user should run. The command will be executed immediately in the user's REPL environment.",
+            "description": "Execute a command in the current REPL environment. Match the environment language shown in context: if shell, generate shell commands; if python, generate Python code. The command will be immediately executed.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "The exact shell command to execute, e.g. 'pip install matplotlib'"}
+                    "command": {"type": "string", "description": "The command to execute, matching the current environment language"}
                 },
                 "required": ["command"],
             },

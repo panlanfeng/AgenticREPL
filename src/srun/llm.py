@@ -11,6 +11,16 @@ from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
 
 
+def _extract_command_from_text(text):
+    if not text:
+        return None
+    for pattern in [r'\{\s*"command"\s*:\s*"([^"]+)"', r'\{\s*"code"\s*:\s*"([^"]+)"']:
+        m = re.search(pattern, text)
+        if m:
+            return m.group(1)
+    return None
+
+
 class LLM:
     def __init__(self):
         self.client = None
@@ -48,12 +58,15 @@ class LLM:
             })
 
         user_content = failure_text
+        if state.current_language != state._llm_last_known_language:
+            user_content = f"[Environment changed to: {state.current_language}]\n\n{user_content}"
+            state._llm_last_known_language = state.current_language
         if error and state.session_context():
             user_content += f"\n\n{state.session_context()}"
 
         messages.append({"role": "user", "content": user_content})
 
-        for _ in range(8):
+        for _ in range(10):
             start = time.perf_counter()
             try:
                 kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 500, "stream": True}
@@ -110,19 +123,19 @@ class LLM:
                         for tc in tool_calls:
                             tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                             msg_dict["tool_calls"].append(tc_dict)
+                        messages.append(msg_dict)
+                        for tc in tool_calls:
                             args = json.loads(tc.function.arguments)
                             if tc.function.name == "run_command":
                                 cmd = args.get("command", "")
                                 if cmd:
                                     commands.append(cmd)
-                                messages.append(msg_dict)
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"queued: {cmd}"})
                             else:
                                 label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
                                 val = list(args.values())[0] if args else ""
                                 print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
                                 result = execute_tool(tc.function.name, args)
-                                messages.append(msg_dict)
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                         self._save_conversation(messages)
                         return text if text else None, commands if commands else None
@@ -130,12 +143,13 @@ class LLM:
                     for tc in tool_calls:
                         tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                         msg_dict["tool_calls"].append(tc_dict)
+                    messages.append(msg_dict)
+                    for tc in tool_calls:
                         args = json.loads(tc.function.arguments)
                         label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
                         val = list(args.values())[0] if args else ""
                         print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
                         result = execute_tool(tc.function.name, args)
-                        messages.append(msg_dict)
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 
@@ -149,6 +163,10 @@ class LLM:
                             cmd = args.get("command", "")
                             if cmd:
                                 commands.append(cmd)
+                if not commands and summary:
+                    extracted = _extract_command_from_text(summary)
+                    if extracted:
+                        commands = [extracted]
                 self._save_conversation(messages)
                 return summary, commands if commands else None
 

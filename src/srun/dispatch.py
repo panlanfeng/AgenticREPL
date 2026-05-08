@@ -38,7 +38,11 @@ def _looks_like_pseudocode(code):
             idx = lower.index(kw)
             if idx > 0 and lower[idx - 1] == ".":
                 continue
-            return True
+            # Ensure keyword is at word boundary, not embedded in a path
+            before = idx == 0 or not lower[idx - 1].isalnum()
+            after = (idx + len(kw)) >= len(lower) or not lower[idx + len(kw)].isalnum()
+            if before and after:
+                return True
     return False
 
 
@@ -105,8 +109,6 @@ class Dispatcher:
         if re.match(r"^\.\/", code):
             return True
         if re.match(r"^[a-zA-Z0-9_\-\.]+\s+--?\w+", code):
-            return True
-        if re.match(r"^[a-zA-Z][a-zA-Z0-9_\-]*(\s|$)", code):
             return True
         return False
 

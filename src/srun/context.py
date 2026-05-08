@@ -97,6 +97,7 @@ class SessionState:
         self.vars = {}
         self.active_df = None
         self.last_lang = "shell"
+        self.current_language = "shell"
         self.history = []
         self.last_output = ""
         self.last_dispatch_error = None
@@ -105,6 +106,7 @@ class SessionState:
         self._turn = 0
         self._conversation = []
         self._context_injected = False
+        self._llm_last_known_language = "shell"
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
@@ -115,6 +117,7 @@ class SessionState:
         self._turn = 0
         self.last_dispatch_error = None
         self._context_injected = False
+        self._llm_last_known_language = self.current_language
 
     def startup_context(self):
         sys_info = self.llm_context()
@@ -196,6 +199,7 @@ class SessionState:
                 "vars": {k: v for k, v in self.vars.items()},
                 "active_df": self.active_df,
                 "last_lang": self.last_lang,
+                "current_language": self.current_language,
                 "history": self.history[-10:],
                 "log": self.session_log[-20:],
             },
@@ -210,6 +214,7 @@ class SessionState:
         ]
         if info.get("tools_note"):
             lines.append(f"Note: {info['tools_note']}")
+        lines.append(f"Current environment: {self.current_language}")
         return "\n".join(lines)
 
     def workspace_context(self):
