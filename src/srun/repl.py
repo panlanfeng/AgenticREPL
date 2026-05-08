@@ -156,14 +156,14 @@ def _run_repl(py_exec, sh_exec, r_exec):
         elif not sh_exec.remote and user_input.lower() in ("exit", "quit"):
             break
 
-        if not python_session and not r_session and not sh_exec.remote and user_input == "python":
+        if not python_session and not r_session and not sh_exec.remote and user_input.lower() == "python":
             python_session = True
             state.current_language = "python"
             print("Entered Python session (type 'exit()' to leave).")
             state.save()
             continue
 
-        if not python_session and not r_session and not sh_exec.remote and user_input == "r":
+        if not python_session and not r_session and not sh_exec.remote and user_input.lower() == "r":
             r_session = True
             state.current_language = "r"
             if r_exec.available:
@@ -338,7 +338,11 @@ def _retry_loop_python(initial_input, py_exec, max_rounds=None, initial_llm=Fals
     attempts = []
     for attempt in range(max_rounds):
         code = current_input
-        m = re.match(r'^python\s+-c\s+"(.+)"\s*$', code)
+        m = re.match(r'^python3?\s+-c\s+"(.+)"\s*$', code)
+        if not m:
+            m = re.match(r"^python3?\s+-c\s+'(.+)'\s*$", code)
+        if not m:
+            m = re.match(r"^python3?\s+<<\s*'?EOF'?\s*\n(.+)\nEOF\s*$", code, re.DOTALL)
         if m:
             code = m.group(1)
         success, output, *extra = py_exec.execute(code)

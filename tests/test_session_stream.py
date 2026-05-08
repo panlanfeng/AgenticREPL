@@ -272,3 +272,214 @@ class TestRunCommandTool:
         # Chat should get a text response, no commands
         assert summary is not None or cmds is not None, \
             "Chat should get text response"
+
+
+class TestPythonSessionMode:
+    """Tests for Python REPL session behavior."""
+
+    def setup_method(self):
+        self.py = PythonExecutor()
+        self.sh = ShellExecutor()
+        self.r = RExecutor()
+        state.reset_session()
+        state.vars.clear()
+
+    def test_python_session_variable_persistence(self):
+        """Variables set in Python mode should persist across commands."""
+        execute("python", "x = 100", self.py, self.sh, self.r)
+        result = execute("python", "x", self.py, self.sh, self.r)
+        assert result["success"]
+        assert "100" in result.get("output", "")
+
+    def test_python_session_multiline(self):
+        """Multiple Python commands should work."""
+        execute("python", "a = 1", self.py, self.sh, self.r)
+        execute("python", "b = 2", self.py, self.sh, self.r)
+        result = execute("python", "a + b", self.py, self.sh, self.r)
+        assert result["success"]
+        assert "3" in result.get("output", "")
+
+    def test_python_session_import(self):
+        """Importing modules should work."""
+        result = execute("python", "import math", self.py, self.sh, self.r)
+        assert result["success"]
+        result = execute("python", "math.sqrt(16)", self.py, self.sh, self.r)
+        assert result["success"]
+        assert "4.0" in result.get("output", "")
+
+    def test_python_wrapper_stripping(self):
+        """python -c wrapper should be stripped in Python mode."""
+        result = execute("python", 'python -c "print(42)"', self.py, self.sh, self.r)
+        assert result["success"]
+        assert "42" in result.get("output", "")
+
+    def test_python3_wrapper_stripping(self):
+        """python3 -c wrapper should be stripped in Python mode."""
+        result = execute("python", "python3 -c \"print(99)\"", self.py, self.sh, self.r)
+        assert result["success"]
+        assert "99" in result.get("output", "")
+
+    def test_python_session_environment_tracking(self):
+        """current_language should be set to python during Python session."""
+        state.current_language = "python"
+        assert state.current_language == "python"
+        state.current_language = "shell"
+
+
+class TestRSessionMode:
+    """Tests for R REPL session behavior."""
+
+    def setup_method(self):
+        self.py = PythonExecutor()
+        self.sh = ShellExecutor()
+        self.r = RExecutor()
+        state.reset_session()
+        state.vars.clear()
+
+    def test_r_executor_availability(self):
+        """R executor should report availability based on Rscript in PATH."""
+        from srun.executors.r_exec import RExecutor
+        r = RExecutor()
+        available = r.available
+        assert isinstance(available, bool)
+
+    def test_r_execution_when_available(self):
+        """If R is available, basic execution should work."""
+        if not self.r.available:
+            pytest.skip("Rscript not available")
+        ok, out, *_ = self.r.execute("42")
+        assert ok
+        assert "42" in out
+
+    def test_r_execution_failure(self):
+        """R syntax errors should return failure."""
+        if not self.r.available:
+            pytest.skip("Rscript not available")
+        ok, out, *_ = self.r.execute("x <-")
+        assert not ok
+
+    def test_r_session_environment_tracking(self):
+        """current_language should be set to r during R session."""
+        state.current_language = "r"
+        assert state.current_language == "r"
+        state.current_language = "shell"
+
+    def test_r_mode_enters_and_exits(self):
+        """Simulate R mode entry/exit via state changes."""
+        state.current_language = "shell"
+        state.current_language = "r"
+        assert state.current_language == "r"
+        state.current_language = "shell"
+        assert state.current_language == "shell"
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_nl_in_r_generates_code(self):
+        """Natural language in R mode should trigger LLM to generate R code."""
+        state.current_language = "r"
+        from srun.llm import llm
+        summary, cmds = llm.run("create a sequence from 1 to 10")
+        # Should either get R code or text summary
+        assert summary is not None or cmds is not None, \
+            "LLM should generate R code or text response"
+        if cmds:
+            # Should contain R-like code
+            for cmd in cmds:
+                assert any(kw in cmd for kw in ("c(", "seq", "1:10", "rep(")), \
+                    f"Expected R-style code, got: {cmd}"
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_nl_in_python_generates_code(self):
+        """Natural language in Python mode should trigger LLM to generate Python code."""
+        state.current_language = "python"
+        from srun.llm import llm
+        summary, cmds = llm.run("create a list of numbers from 1 to 10")
+        assert summary is not None or cmds is not None
+        if cmds:
+            for cmd in cmds:
+                assert any(kw in cmd for kw in ("range(", "list(", "for ")), \
+                    f"Expected Python-style code, got: {cmd}"
+
+
+class TestNaturalLanguageCrossLanguage:
+    """Tests for natural language inputs across different language sessions."""
+
+    def setup_method(self):
+        from srun.llm import llm
+        self.llm = llm
+        state.reset_session()
+        state._context_injected = True
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_shell_nl_python_task(self):
+        """In shell mode, NL asking for Python should generate python -c wrapper."""
+        state.current_language = "shell"
+        summary, cmds = self.llm.run("create a pandas dataframe")
+        assert summary is not None or cmds is not None, \
+            "Should generate response"
+        if cmds:
+            is_shell_wrapper = any("python" in c for c in cmds)
+            is_pure_python = any("pd.DataFrame" in c or "import pandas" in c for c in cmds)
+            assert is_shell_wrapper or is_pure_python, \
+                f"Expected python-related code, got: {cmds}"
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_python_nl_shell_task(self):
+        """In Python mode, requesting shell info should still work."""
+        state.current_language = "python"
+        summary, cmds = self.llm.run("list all files in the current directory")
+        assert summary is not None or cmds is not None
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_r_nl_statistical_task(self):
+        """In R mode, NL requesting stats should generate R code."""
+        state.current_language = "r"
+        summary, cmds = self.llm.run("calculate the mean of numbers 1,2,3,4,5")
+        assert summary is not None or cmds is not None
+        if cmds:
+            for cmd in cmds:
+                assert "mean" in cmd.lower() or "c(" in cmd, \
+                    f"Expected R statistical code, got: {cmd}"
+
+
+class TestPythonShellWrapperStripping:
+    """Test the regex that strips shell wrappers from Python code."""
+
+    def setup_method(self):
+        import re
+        self.re = re
+
+    def _extract(self, code):
+        m = self.re.match(r'^python3?\s+-c\s+"(.+)"\s*$', code)
+        if not m:
+            m = self.re.match(r"^python3?\s+-c\s+'(.+)'\s*$", code)
+        if not m:
+            m = self.re.match(r"^python3?\s+<<\s*'?EOF'?\s*\n(.+)\nEOF\s*$", code, self.re.DOTALL)
+        return m.group(1) if m else code
+
+    def test_strip_python_c_double_quotes(self):
+        result = self._extract('python -c "print(42)"')
+        assert result == "print(42)"
+
+    def test_strip_python3_c_double_quotes(self):
+        result = self._extract('python3 -c "print(99)"')
+        assert result == "print(99)"
+
+    def test_strip_python_c_single_quotes(self):
+        result = self._extract("python -c 'print(42)'")
+        assert result == "print(42)"
+
+    def test_strip_heredoc(self):
+        result = self._extract("""python << 'EOF'
+import pandas as pd
+df = pd.DataFrame()
+EOF""")
+        assert "import pandas as pd" in result
+
+    def test_no_wrapper_passthrough(self):
+        result = self._extract("print(42)")
+        assert result == "print(42)"

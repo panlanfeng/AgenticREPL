@@ -1,25 +1,28 @@
+import subprocess
+import shutil
+import os
+
+
 class RExecutor:
     def __init__(self):
-        self._r = None
-        self._available = None
+        self._available = shutil.which("Rscript") is not None
 
     @property
     def available(self):
-        if self._available is None:
-            try:
-                import rpy2.robjects as ro
-
-                self._r = ro.r
-                self._available = True
-            except ImportError:
-                self._available = False
         return self._available
 
     def execute(self, code):
         if not self.available:
-            return False, "R not available (install rpy2)", ""
+            return False, "R not available (install R)", ""
         try:
-            result = self._r(code)
-            return True, str(result), ""
+            result = subprocess.run(
+                ["Rscript", "-e", code],
+                capture_output=True, text=True, timeout=30,
+                cwd=os.getcwd(),
+            )
+            output = result.stdout
+            if result.stderr:
+                output += result.stderr
+            return result.returncode == 0, output.strip(), output
         except Exception as e:
             return False, f"R Error: {e}", ""
