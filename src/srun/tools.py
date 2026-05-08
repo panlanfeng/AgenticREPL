@@ -97,6 +97,17 @@ def _sys_python_version():
     return sys.version.split()[0]
 
 
+GNU_ALTERNATIVES = {
+    "grep": "ggrep",
+    "sed": "gsed",
+    "awk": "gawk",
+    "find": "gfind",
+    "ls": "gls",
+    "make": "gmake",
+    "tar": "gtar",
+}
+
+
 def check_command(command):
     cmd = command.strip().split()[0]
     path = shutil.which(cmd)
@@ -105,7 +116,8 @@ def check_command(command):
     info = [f"Command: {cmd}", f"Path: {path}"]
     try:
         r = subprocess.run(f"file {path}", shell=True, capture_output=True, text=True, timeout=5)
-        info.append(f"Type: {r.stdout.strip()}")
+        line = r.stdout.strip().split("\n")[0]
+        info.append(f"Type: {line}")
     except Exception:
         pass
     for flag in ["--version", "-V", "version"]:
@@ -118,10 +130,18 @@ def check_command(command):
                 break
         except Exception:
             continue
-    if "gnu" in " ".join(info).lower():
+    is_bsd = False
+    combined = " ".join(info).lower()
+    if "bsd" in combined and cmd in ("grep", "sed", "awk", "ls", "sort", "find"):
+        is_bsd = True
+        info.append("Note: macOS BSD version (differs from GNU). Flags like --color=never, --no-color are NOT available — strip the flag instead.")
+    elif "gnu" in combined:
         info.append("Note: GNU version detected")
-    elif _sys_platform() == "darwin" and cmd in ("grep", "sed", "awk", "ls", "sort"):
-        info.append("Note: macOS BSD version (differs from GNU)")
+    if is_bsd and cmd in GNU_ALTERNATIVES:
+        gnu_cmd = GNU_ALTERNATIVES[cmd]
+        gnu_path = shutil.which(gnu_cmd)
+        if gnu_path:
+            info.append(f"GNU alternative available: {gnu_cmd} at {gnu_path} (use '{gnu_cmd}' instead of '{cmd}' for GNU-compatible flags)")
     return "\n".join(info)
 
 
@@ -191,7 +211,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_command",
-            "description": "Check which version of a command is installed (GNU vs BSD, version, path). Use when you need to know if flags are compatible.",
+            "description": "Check which version of a command is installed (GNU vs BSD, version, path). Also checks for GNU alternatives (ggrep, gsed, gawk) on macOS. Use when you need to know if flags are compatible or if a GNU version is available.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -6,6 +6,7 @@ This is ligthweight AI agent focusing on efficient code execution with high tole
 ## Code style
 
 - Separate REPL UI code from the AI agent. 
+- Add clear comments for each main lines. Document every key designs. 
 - When user input is clearly code, execute it immediately. LLM intervenes only when the input is ambiguous or when execution fails. 
 - When Users execute files or multi-line code — understand the overall user intention first but recommend to execute commands one by one, repairing errors individually.
 

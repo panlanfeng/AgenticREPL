@@ -102,10 +102,10 @@ class Dispatcher:
         return False
 
     def llm_dispatch(self, user_input):
-        lang, code = llm.run(user_input)
+        lang, code, summary = llm.run(user_input)
         if code is None:
-            return "shell", user_input
-        return lang or "shell", code
+            return "shell", user_input, None
+        return lang or "shell", code, summary
 
 
 dispatcher = Dispatcher()

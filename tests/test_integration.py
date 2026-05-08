@@ -2,7 +2,7 @@
 
 import pytest
 import time
-from srun.repl import execute
+from srun.repl import execute, _log_turn
 from srun.dispatch import dispatcher
 from srun.context import state
 from srun.executors.python_exec import PythonExecutor
@@ -15,6 +15,7 @@ class TestIntegration:
         self.py = PythonExecutor()
         self.sh = ShellExecutor()
         self.r = RExecutor()
+        state.reset_session()
         state.vars.clear()
         state.active_df = None
         state.last_dispatch_error = None
@@ -96,9 +97,7 @@ class TestIntegration:
     @pytest.mark.llm
     def test_multi_round_server_cache(self):
         from srun.llm import llm
-        from srun.repl import _log_turn
-        llm._hit_tokens = 0
-        llm._miss_tokens = 0
+        llm.reset_cache()
 
         commands = [
             "ls all inverse order",

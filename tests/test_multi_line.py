@@ -18,11 +18,9 @@ class TestMultiLineFile:
         self.py = PythonExecutor()
         self.sh = ShellExecutor()
         self.r = RExecutor()
+        state.reset_session()
         state.vars.clear()
         state.active_df = None
-        state.last_dispatch_error = None
-        state.session_log = []
-        state._conversation = []
 
     def test_file_execution_fast_only(self):
         """Execute a script with no typos — all fast, no LLM."""

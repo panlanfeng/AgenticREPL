@@ -5,13 +5,9 @@ import time
 from datetime import datetime
 from openai import OpenAI
 from .config import config
-from .context import state
+from .context import state, CONVERSATIONS_DIR
 from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
-
-REPAIR_TOOLS = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in ("get_command_help", "check_command")]
-
-HISTORY_DIR = os.path.join(os.path.expanduser("~"), ".srun", "conversations")
 
 
 class LLM:
@@ -32,18 +28,29 @@ class LLM:
                 f"It failed with this error:\n{error}\n\n"
                 f"Fix the command and output the correct version as JSON."
             )
-            tools = None
         else:
             failure_text = (
                 f"The user typed: {user_input}\n\n"
-                f"Generate the correct executable command as JSON. "
-                f"Use available tools to check file contents, command versions, or environment if needed."
+                f"Generate the correct executable command as JSON."
             )
-            tools = TOOL_DEFINITIONS
 
-        system_prompt = PROMPT.format(context=state.llm_context())
+        tools = TOOL_DEFINITIONS
+
+        system_prompt = PROMPT.format()
         messages = state.build_conversation_messages(system_prompt)
-        messages.append({"role": "user", "content": failure_text})
+
+        if not state._context_injected:
+            state._context_injected = True
+            messages.append({
+                "role": "user",
+                "content": f"[session startup]\n{state.startup_context()}"
+            })
+
+        user_content = failure_text
+        if error and state.session_context():
+            user_content += f"\n\n{state.session_context()}"
+
+        messages.append({"role": "user", "content": user_content})
 
         for _ in range(8):
             start = time.perf_counter()
@@ -72,17 +79,17 @@ class LLM:
                     continue
 
                 text = choice.message.content.strip() if choice.message.content else ""
-                lang, code = self._parse(text, user_input)
+                lang, code, summary = self._parse(text, user_input)
                 self._save_conversation(messages)
-                return lang, code
+                return lang, code, summary
 
             except Exception as e:
                 state.last_dispatch_error = str(e)
                 self._save_conversation(messages)
-                return None, None
+                return None, None, None
 
         self._save_conversation(messages)
-        return None, None
+        return None, None, None
 
     def _track_usage(self, usage):
         if usage:
@@ -90,15 +97,19 @@ class LLM:
             self._miss_tokens += getattr(usage, "prompt_cache_miss_tokens", 0) or 0
 
     def _save_conversation(self, messages):
-        os.makedirs(HISTORY_DIR, exist_ok=True)
+        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(HISTORY_DIR, f"conv_{ts}.json")
+        path = os.path.join(CONVERSATIONS_DIR, f"conv_{ts}.json")
         clean = []
         for m in messages:
             if isinstance(m, dict):
                 clean.append({k: v for k, v in m.items() if k != "tool_call_id"})
         with open(path, "w") as f:
             json.dump(clean, f, indent=2, default=str)
+
+    def reset_cache(self):
+        self._hit_tokens = 0
+        self._miss_tokens = 0
 
     @property
     def cache_hit_rate(self):
@@ -117,36 +128,41 @@ class LLM:
 
     def _parse(self, text, original_input):
         if not text:
-            return None, None
-        # 1) Try whole text as JSON
+            return None, None, None
+        code = None
+        lang = None
+        summary = None
+
+        def _extract(d):
+            nonlocal code, lang, summary
+            code = d.get("code")
+            lang = d.get("language", "shell")
+            summary = d.get("summary", "")
+            return code and code != original_input
+
         try:
             parsed = json.loads(text)
-            code = parsed.get("code")
-            lang = parsed.get("language", "shell")
-            if code and code != original_input:
-                return lang, code
+            if _extract(parsed):
+                return lang, code, summary
         except json.JSONDecodeError:
             pass
-        # 2) Extract JSON object from mixed text
         obj = self._extract_json(text)
         if obj:
-            code = obj.get("code")
-            lang = obj.get("language", "shell")
-            if code and code != original_input:
-                return lang, code
-        # 3) Extract code from markdown blocks
+            if _extract(obj):
+                return lang, code, summary
         block = re.search(r"```(?:json|bash|shell|sh|python|py)?\s*\n?(.+?)```", text, re.DOTALL)
         if block:
-            code = block.group(1).strip()
+            code_str = block.group(1).strip()
             try:
-                inner = json.loads(code)
-                code = inner.get("code", code)
-                lang = inner.get("language", "shell")
+                inner = json.loads(code_str)
+                if _extract(inner):
+                    return lang, code, summary
             except json.JSONDecodeError:
+                code = code_str
                 lang = "shell"
-            if code and code != original_input:
-                return lang, code
-        return None, None
+                if code != original_input:
+                    return lang, code, summary
+        return None, None, None
 
     @staticmethod
     def _extract_json(text):

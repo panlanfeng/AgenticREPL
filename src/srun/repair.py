@@ -25,9 +25,9 @@ class Repairer:
     def fix(self, original_input, error_message, language="shell"):
         quick = apply_quick_fix(original_input, error_message)
         if quick:
-            return quick
-        _, code = llm.run(original_input, error=error_message)
-        return code
+            return quick, None
+        _, code, summary = llm.run(original_input, error=error_message)
+        return code, summary
 
 
 repairer = Repairer()

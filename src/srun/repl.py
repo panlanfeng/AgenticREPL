@@ -52,6 +52,7 @@ def main():
     py_exec = PythonExecutor()
     sh_exec = ShellExecutor()
     r_exec = RExecutor()
+    state.reset_session()
 
     print(LOGO)
     print(f"LLM: {'available' if llm.client else 'unavailable'}")
@@ -157,12 +158,13 @@ def _log_turn(user_input, result, elapsed_ms):
 
     if llm_used:
         code = fixed or generated or user_input
-        error_text = "\n".join(repair_errors) if repair_errors else None
-        state.add_conversation_turn(
-            user_msg=f"The user typed: {user_input}",
-            assistant_code=code,
-            error_output=error_text,
-        )
+        if code:
+            error_text = "\n".join(repair_errors) if repair_errors else None
+            state.add_conversation_turn(
+                user_msg=f"The user typed: {user_input}",
+                assistant_code=code,
+                error_output=error_text,
+            )
 
     state.log_entry(
         type="llm_repair" if (llm_used and fixed) else
@@ -210,7 +212,7 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
                 "repair_errors": repair_errors,
             }
         error_msg = output if not success else stderr
-        fixed, used_llm = try_repair(current_input, error_msg, "shell")
+        fixed, used_llm, _ = try_repair(current_input, error_msg, "shell")
         if fixed is None or fixed == current_input:
             return {
                 "success": False, "output": output.strip(),
@@ -248,7 +250,7 @@ def _retry_loop_python(initial_input, py_exec, max_rounds=4, initial_llm=False):
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "python",
             }
-        fixed, used_llm = try_repair(current_input, output, "python")
+        fixed, used_llm, _ = try_repair(current_input, output, "python")
         if fixed is None or fixed == current_input:
             return {
                 "success": False, "output": output.strip(),
@@ -269,7 +271,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop_shell(user_input, sh_exec)
 
-    lang, code = dispatcher.llm_dispatch(user_input)
+    lang, code, summary = dispatcher.llm_dispatch(user_input)
     if getattr(state, "last_dispatch_error", None):
         return {
             "success": False,
@@ -278,14 +280,13 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
             "language": lang,
         }
 
-    return execute_dispatched(lang, code, user_input, py_exec, sh_exec, r_exec)
+    return execute_dispatched(lang, code, summary, user_input, py_exec, sh_exec, r_exec)
 
 
-def execute_dispatched(lang, code, original_input, py_exec, sh_exec, r_exec):
+def execute_dispatched(lang, code, summary, original_input, py_exec, sh_exec, r_exec):
     if lang == "python":
-        return _retry_loop_python(code, py_exec, initial_llm=True)
-
-    if lang == "r":
+        result = _retry_loop_python(code, py_exec, initial_llm=True)
+    elif lang == "r":
         if not r_exec.available:
             return {
                 "success": False,
@@ -293,9 +294,12 @@ def execute_dispatched(lang, code, original_input, py_exec, sh_exec, r_exec):
                 "llm_used": True,
                 "language": "r",
             }
-        return _retry_loop_r(code, original_input, r_exec)
-
-    return _retry_loop_shell(code, sh_exec, initial_llm=True)
+        result = _retry_loop_r(code, original_input, r_exec)
+    else:
+        result = _retry_loop_shell(code, sh_exec, initial_llm=True)
+    if summary:
+        result["summary"] = summary
+    return result
 
 
 def _retry_loop_r(initial_input, original_input, r_exec, max_rounds=4):
@@ -314,7 +318,7 @@ def _retry_loop_r(initial_input, original_input, r_exec, max_rounds=4):
                 "success": False, "output": output.strip(),
                 "llm_used": True, "language": "r",
             }
-        fixed, _ = try_repair(original_input, output, "r")
+        fixed, _, _ = try_repair(original_input, output, "r")
         if fixed is None or fixed == current_input:
             return {
                 "success": False, "output": output.strip(),
@@ -327,22 +331,23 @@ def _retry_loop_r(initial_input, original_input, r_exec, max_rounds=4):
 def try_repair(original, error_msg, language):
     quick = apply_quick_fix(original, error_msg)
     if quick:
-        return quick, False
+        return quick, False, None
 
     for _ in range(3):
-        fixed = repairer.fix(original, error_msg, language)
+        fixed, summary = repairer.fix(original, error_msg, language)
         if fixed is None:
-            return None, False
+            return None, False, None
         if fixed != original:
-            return fixed, True
+            return fixed, True, summary
         original = fixed
-    return None, False
+    return None, False, None
 
 
 def print_result(result, elapsed_ms):
     output = result.get("output", "")
     llm = result.get("llm_used", False)
     lang = result.get("language", "")
+    summary = result.get("summary")
     fixed = result.get("fixed_code")
     generated = result.get("generated_code")
 
@@ -350,6 +355,8 @@ def print_result(result, elapsed_ms):
         print(f"\033[1;33m⟳  {fixed}\033[0m")
     if generated:
         print(f"\033[1;33m⟳  {generated}\033[0m")
+    if summary:
+        print(f"\033[2m   {summary}\033[0m")
 
     if output:
         print(output.rstrip())

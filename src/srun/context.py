@@ -1,10 +1,30 @@
 import os
 import json
+import time
+import uuid
 import platform
 import shutil
+import subprocess
 
-STATE_DIR = os.path.join(os.path.expanduser("~"), ".srun")
-STATE_FILE = os.path.join(STATE_DIR, "state.json")
+BASE_DIR = os.path.join(os.path.expanduser("~"), ".srun")
+
+
+def _gen_session_id():
+    return time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+
+
+def _session_dir():
+    sid = os.environ.get("SRUN_SESSION_ID", "")
+    if sid:
+        return os.path.join(BASE_DIR, "sessions", sid)
+    return os.path.join(BASE_DIR, "sessions", _gen_session_id())
+
+
+SESSION_DIR = _session_dir()
+SESSION_ID = os.path.basename(SESSION_DIR)
+STATE_FILE = os.path.join(SESSION_DIR, "state.json")
+CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
+SHARED_STATE_FILE = os.path.join(BASE_DIR, "state.json")
 
 
 def get_system_info():
@@ -50,6 +70,28 @@ def get_file_meta():
     return files
 
 
+def _get_git_info(cwd):
+    try:
+        r = subprocess.run(
+            "git rev-parse --abbrev-ref HEAD 2>/dev/null",
+            shell=True, capture_output=True, text=True, timeout=3, cwd=cwd,
+        )
+        branch = r.stdout.strip()
+        if branch:
+            info = f"branch={branch}"
+            r2 = subprocess.run(
+                "git rev-parse --short HEAD 2>/dev/null",
+                shell=True, capture_output=True, text=True, timeout=3, cwd=cwd,
+            )
+            sha = r2.stdout.strip()
+            if sha:
+                info += f" sha={sha}"
+            return info
+    except Exception:
+        pass
+    return ""
+
+
 class SessionState:
     def __init__(self):
         self.vars = {}
@@ -62,7 +104,22 @@ class SessionState:
         self.session_log = []
         self._turn = 0
         self._conversation = []
-        os.makedirs(STATE_DIR, exist_ok=True)
+        self._context_injected = False
+        os.makedirs(BASE_DIR, exist_ok=True)
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+
+    def reset_session(self):
+        self._conversation = []
+        self.session_log = []
+        self._turn = 0
+        self.last_dispatch_error = None
+        self._context_injected = False
+
+    def startup_context(self):
+        sys_info = self.llm_context()
+        ws_info = self.workspace_context()
+        return f"{sys_info}\n{ws_info}"
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
@@ -95,7 +152,7 @@ class SessionState:
         if detail:
             entry["detail"] = detail
         # append to a debug log file
-        log_file = os.path.join(STATE_DIR, "debug.log")
+        log_file = os.path.join(SESSION_DIR, "debug.log")
         with open(log_file, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
@@ -129,8 +186,10 @@ class SessionState:
             self.history = self.history[-20:]
 
     def save(self):
-        os.makedirs(STATE_DIR, exist_ok=True)
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
         state_data = {
+            "session_id": SESSION_ID,
             "system": get_system_info(),
             "workspace": {"files": get_file_meta()},
             "session": {
@@ -146,30 +205,23 @@ class SessionState:
 
     def llm_context(self):
         info = get_system_info()
-        files = get_file_meta()
         lines = [
             f"System: {info['platform']} ({info['arch']}), {info['cpu']} cores, shell={info['shell']}",
         ]
         if info.get("tools_note"):
             lines.append(f"Note: {info['tools_note']}")
-        lines.append(f"Workspace: {info['cwd']}")
+        return "\n".join(lines)
+
+    def workspace_context(self):
+        info = get_system_info()
+        files = get_file_meta()
+        lines = [f"Workspace: {info['cwd']}"]
+        git_info = _get_git_info(info['cwd'])
+        if git_info:
+            lines.append(f"Git: {git_info}")
         if files:
-            file_list = ", ".join(f"{f['name']}({f['size']})" for f in files[:10])
+            file_list = ", ".join(f"{f['name']}({f['size']})" for f in files[:15])
             lines.append(f"Files: {file_list}")
-        if self.vars:
-            var_list = []
-            for name, meta in self.vars.items():
-                if "columns" in meta:
-                    cols = ", ".join(meta["columns"][:10])
-                    rows = meta.get("rows", "?")
-                    var_list.append(f"{name}[{cols} | {rows} rows]")
-                else:
-                    var_list.append(f"{name}: {meta.get('type', '?')}")
-            lines.append(f"Variables: {'; '.join(var_list)}")
-        if self.active_df:
-            lines.append(f"Active DataFrame: {self.active_df}")
-        if self.last_lang:
-            lines.append(f"Last language: {self.last_lang}")
         return "\n".join(lines)
 
     def session_context(self):
