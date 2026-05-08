@@ -1,6 +1,6 @@
 # srun — Smart REPL
 
-This is not another AI terminal but an LLM-powered lightweight REPL. Type shell commands or other code naturally and add natural langauges descriptions when you don't remember the details. Correct commands execute instantly, typos get fixed automatically and natural langauge description will be translate into the correct command.
+This is not another AI terminal but an AI agent and REPL in one. Type shell commands or other code naturally and add natural langauges descriptions when you don't remember the details. Correct commands execute instantly, typos get fixed automatically and natural langauge description will be translate into the correct command.
 This REPL is able to execute normal commands, psuedo code, code mixed with natural languages or even natural langauge description itself. 
 
 The SRUN puts command execution first and AI agent as a suplementary tool when user user input is not a executable command. 

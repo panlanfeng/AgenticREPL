@@ -229,7 +229,25 @@ TOOL_DEFINITIONS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Execute a shell command. Call this when you have the correct command the user should run. The command will be executed immediately in the user's REPL environment.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The exact shell command to execute, e.g. 'pip install matplotlib'"}
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
+
+def _run_command(command):
+    return f"Command queued: {command}"
+
 
 TOOL_HANDLERS = {
     "get_command_help": get_command_help,
@@ -237,6 +255,7 @@ TOOL_HANDLERS = {
     "read_file": read_file,
     "check_command": check_command,
     "get_env_info": get_env_info,
+    "run_command": _run_command,
 }
 
 

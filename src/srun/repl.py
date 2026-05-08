@@ -32,6 +32,7 @@ try:
             return None
 
     _tab_completer._matches = []
+    tab_completer = _tab_completer
     readline.set_completer(_tab_completer)
     readline.parse_and_bind("tab: complete")
 except ImportError:
@@ -98,17 +99,23 @@ def _run_file(path, py_exec, sh_exec, r_exec):
 
 def _run_repl(py_exec, sh_exec, r_exec):
     state.save()
+    python_session = False
 
     while True:
         try:
-            remote = sh_exec.remote
-            if remote:
-                prompt = f"{remote}\n\033[1;32msrun>\033[0m "
+            if python_session:
+                prompt = "\033[1;35mpython>\033[0m "
+            elif sh_exec.remote:
+                prompt = f"{sh_exec.remote}\n\033[1;32msrun>\033[0m "
             else:
                 prompt = f"{os.getcwd()}\n\033[1;32msrun>\033[0m "
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
+            if python_session:
+                python_session = False
+                print("Exited Python session.")
+                continue
             if sh_exec.remote:
                 sh_exec.disconnect()
                 print("Disconnected from remote.")
@@ -118,14 +125,26 @@ def _run_repl(py_exec, sh_exec, r_exec):
         if not user_input:
             continue
 
-        if sh_exec.remote and user_input.lower() in ("exit", "quit"):
+        if python_session:
+            if user_input.lower() in ("exit()", "quit()", "exit", "quit"):
+                python_session = False
+                print("Exited Python session.")
+                state.save()
+                continue
+        elif sh_exec.remote and user_input.lower() in ("exit", "quit"):
             sh_exec.disconnect()
             print("Disconnected from remote.")
             continue
-        if not sh_exec.remote and user_input.lower() in ("exit", "quit"):
+        elif not sh_exec.remote and user_input.lower() in ("exit", "quit"):
             break
 
-        if not sh_exec.remote and user_input.startswith("ssh "):
+        if not python_session and not sh_exec.remote and user_input == "python":
+            python_session = True
+            print("Entered Python session (type 'exit()' to leave).")
+            state.save()
+            continue
+
+        if not python_session and not sh_exec.remote and user_input.startswith("ssh "):
             result = _handle_ssh(user_input, sh_exec)
             if result is not None:
                 print(result)
@@ -133,8 +152,11 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
 
         start = time.perf_counter()
-        category = dispatcher.classify(user_input)
-        result = execute(category, user_input, py_exec, sh_exec, r_exec)
+        if python_session:
+            result = execute("python", user_input, py_exec, sh_exec, r_exec)
+        else:
+            category = dispatcher.classify(user_input)
+            result = execute(category, user_input, py_exec, sh_exec, r_exec)
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
             code = result.get("fixed_code") or result.get("generated_code") or ""
@@ -220,6 +242,7 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=None, initial_llm=False
     llm_used = initial_llm
     repair_errors = []
     attempts = []
+    last_summary = None
     for attempt in range(max_rounds):
         success, output, *rest = sh_exec.execute(current_input)
         stderr = rest[0] if len(rest) > 0 else ""
@@ -230,6 +253,7 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=None, initial_llm=False
                 "llm_used": llm_used, "language": "shell",
                 "fixed_code": current_input if current_input != initial_input else None,
                 "repair_errors": repair_errors,
+                "summary": last_summary,
             }
         if attempt >= max_rounds - 1:
             summary = "Gave up after {} {}.".format(
@@ -244,13 +268,18 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=None, initial_llm=False
                 "summary": summary,
             }
         error_msg = output if not success else stderr
-        fixed, used_llm, _ = try_repair(current_input, error_msg, "shell")
+        fixed, used_llm, summary = try_repair(current_input, error_msg, "shell")
+        if summary:
+            last_summary = summary
         if fixed is None or fixed == current_input:
+            summary = "Unable to fix this command."
+            if attempts:
+                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
                 "repair_errors": repair_errors,
-                "summary": "Unable to fix this command.",
+                "summary": summary,
             }
         repair_errors.append(error_msg)
         attempts.append(fixed)
@@ -293,10 +322,13 @@ def _retry_loop_python(initial_input, py_exec, max_rounds=None, initial_llm=Fals
             }
         fixed, used_llm, _ = try_repair(current_input, output, "python")
         if fixed is None or fixed == current_input:
+            summary = "Unable to fix this command."
+            if attempts:
+                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "python",
-                "summary": "Unable to fix this command.",
+                "summary": summary,
             }
         attempts.append(fixed)
         llm_used = llm_used or used_llm
@@ -314,16 +346,39 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop_shell(user_input, sh_exec)
 
-    lang, code, summary = dispatcher.llm_dispatch(user_input)
-    if getattr(state, "last_dispatch_error", None):
+    summary, tool_calls = llm.run(user_input)
+    if tool_calls is None and summary is None:
         return {
             "success": False,
-            "output": f"LLM dispatch failed: {state.last_dispatch_error}",
+            "output": "Unable to understand this input. Try rephrasing.",
             "llm_used": True,
-            "language": lang,
+            "summary": "The input could not be translated into an executable command.",
+        }
+    if not tool_calls:
+        return {
+            "success": True,
+            "output": summary or "",
+            "llm_used": True,
+            "language": "text",
+            "summary": summary,
         }
 
-    return execute_dispatched(lang, code, summary, user_input, py_exec, sh_exec, r_exec)
+    # Execute each tool call through the classify→execute pipeline.
+    # If the generated code is still unclassifiable, run as shell once (no LLM recursion).
+    for cmd in tool_calls:
+        cat = dispatcher.classify(cmd)
+        if cat == "unknown":
+            ok, out, *_ = sh_exec.execute(cmd)
+            result = {"success": ok, "output": out.strip() if out else "", "llm_used": True, "language": "shell", "generated_code": cmd}
+        else:
+            result = execute(cat, cmd, py_exec, sh_exec, r_exec)
+        if not result["success"]:
+            result["summary"] = summary
+            return result
+    result = {"success": True, "output": "", "llm_used": True, "language": "shell",
+              "generated_code": tool_calls[0] if len(tool_calls) == 1 else None,
+              "summary": summary}
+    return result
 
 
 def execute_dispatched(lang, code, summary, original_input, py_exec, sh_exec, r_exec):
@@ -389,29 +444,27 @@ def try_repair(original, error_msg, language):
 def print_result(result, elapsed_ms):
     output = result.get("output", "")
     llm = result.get("llm_used", False)
-    lang = result.get("language", "")
     summary = result.get("summary")
     fixed = result.get("fixed_code")
     generated = result.get("generated_code")
 
+    if summary:
+        print(f"\033[2m   {summary}\033[0m")
     if fixed:
         print(f"\033[1;33m⟳  {fixed}\033[0m")
     if generated:
         print(f"\033[1;33m⟳  {generated}\033[0m")
-    if summary:
-        print(f"\033[2m   {summary}\033[0m")
 
     if output:
         print(output.rstrip())
 
-    timing = f"\033[2m[{lang}]\033[0m" if lang else ""
     llm_tag = " \033[1;33m+LLM\033[0m" if llm else ""
     from .llm import llm
     stats = llm.cache_stats
     cache_part = ""
     if stats["total_tokens"] > 0:
         cache_part = f" cache:{stats['rate']:.0%}"
-    print(f"{timing}{llm_tag} \033[2m{elapsed_ms:.0f}ms{cache_part}\033[0m")
+    print(f"{llm_tag} \033[2m{elapsed_ms:.0f}ms{cache_part}\033[0m")
 
 
 if __name__ == "__main__":

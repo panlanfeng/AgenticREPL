@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import types
 from datetime import datetime
 from openai import OpenAI
 from .config import config
@@ -55,41 +56,109 @@ class LLM:
         for _ in range(8):
             start = time.perf_counter()
             try:
-                kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 500}
+                kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 500, "stream": True}
                 if tools:
                     kwargs["tools"] = tools
                     kwargs["tool_choice"] = "auto"
-                resp = self.client.chat.completions.create(**kwargs)
+                stream = self.client.chat.completions.create(**kwargs)
 
-                self._track_usage(resp.usage)
+                content_parts = []
+                tool_call_data = {}
+                usage = None
 
-                choice = resp.choices[0]
-                msg = choice.message
-                if tools and msg.tool_calls:
-                    messages.append(msg)
-                    for tc in msg.tool_calls:
-                        name = tc.function.name
+                for chunk in stream:
+                    if chunk.usage:
+                        usage = chunk.usage
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
+                    if delta.content:
+                        print(delta.content, end="", flush=True)
+                        content_parts.append(delta.content)
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_call_data:
+                                tool_call_data[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                            if tc.id:
+                                tool_call_data[idx]["id"] = tc.id
+                            if tc.function and tc.function.name:
+                                tool_call_data[idx]["name"] += tc.function.name or ""
+                            if tc.function and tc.function.arguments:
+                                tool_call_data[idx]["arguments"] += tc.function.arguments or ""
+
+                if content_parts:
+                    print(flush=True)
+
+                self._track_usage(usage)
+
+                text = "".join(content_parts).strip()
+                tool_calls = []
+                for i in sorted(tool_call_data.keys()):
+                    tc = tool_call_data[i]
+                    if tc["name"] and tc["arguments"]:
+                        tool_calls.append(types.SimpleNamespace(
+                            id=tc["id"], function=types.SimpleNamespace(name=tc["name"], arguments=tc["arguments"])
+                        ))
+
+                if tools and tool_calls:
+                    has_run = any(tc.function.name == "run_command" for tc in tool_calls)
+                    if has_run:
+                        commands = []
+                        msg_content = text
+                        msg_dict = {"role": "assistant", "content": msg_content, "tool_calls": []}
+                        for tc in tool_calls:
+                            tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                            msg_dict["tool_calls"].append(tc_dict)
+                            args = json.loads(tc.function.arguments)
+                            if tc.function.name == "run_command":
+                                cmd = args.get("command", "")
+                                if cmd:
+                                    commands.append(cmd)
+                                messages.append(msg_dict)
+                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"queued: {cmd}"})
+                            else:
+                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
+                                val = list(args.values())[0] if args else ""
+                                print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
+                                result = execute_tool(tc.function.name, args)
+                                messages.append(msg_dict)
+                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                        self._save_conversation(messages)
+                        return text if text else None, commands if commands else None
+                    msg_dict = {"role": "assistant", "content": text, "tool_calls": []}
+                    for tc in tool_calls:
+                        tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        msg_dict["tool_calls"].append(tc_dict)
                         args = json.loads(tc.function.arguments)
-                        result = execute_tool(name, args)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": result,
-                        })
+                        label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
+                        val = list(args.values())[0] if args else ""
+                        print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
+                        result = execute_tool(tc.function.name, args)
+                        messages.append(msg_dict)
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 
-                text = choice.message.content.strip() if choice.message.content else ""
-                lang, code, summary = self._parse(text, user_input)
+                summary = text if text else None
+                commands = None
+                if tool_calls:
+                    commands = []
+                    for tc in tool_calls:
+                        if tc.function.name == "run_command":
+                            args = json.loads(tc.function.arguments)
+                            cmd = args.get("command", "")
+                            if cmd:
+                                commands.append(cmd)
                 self._save_conversation(messages)
-                return lang, code, summary
+                return summary, commands if commands else None
 
             except Exception as e:
                 state.last_dispatch_error = str(e)
                 self._save_conversation(messages)
-                return None, None, None
+                return None, None
 
         self._save_conversation(messages)
-        return None, None, None
+        return None, None
 
     def _track_usage(self, usage):
         if usage:
@@ -128,41 +197,29 @@ class LLM:
 
     def _parse(self, text, original_input):
         if not text:
-            return None, None, None
-        code = None
-        lang = None
+            return None, None
         summary = None
+        tool_calls = None
 
         def _extract(d):
-            nonlocal code, lang, summary
-            code = d.get("code")
-            lang = d.get("language", "shell")
+            nonlocal summary, tool_calls
             summary = d.get("summary", "")
-            return code and code != original_input
+            tc = d.get("tool_calls")
+            if tc and isinstance(tc, list) and len(tc) > 0:
+                tool_calls = [t.get("command", "") for t in tc if t.get("command")]
+            return tool_calls or summary
 
         try:
             parsed = json.loads(text)
             if _extract(parsed):
-                return lang, code, summary
+                return summary, tool_calls
         except json.JSONDecodeError:
             pass
         obj = self._extract_json(text)
         if obj:
             if _extract(obj):
-                return lang, code, summary
-        block = re.search(r"```(?:json|bash|shell|sh|python|py)?\s*\n?(.+?)```", text, re.DOTALL)
-        if block:
-            code_str = block.group(1).strip()
-            try:
-                inner = json.loads(code_str)
-                if _extract(inner):
-                    return lang, code, summary
-            except json.JSONDecodeError:
-                code = code_str
-                lang = "shell"
-                if code != original_input:
-                    return lang, code, summary
-        return None, None, None
+                return summary, tool_calls
+        return None, None
 
     @staticmethod
     def _extract_json(text):

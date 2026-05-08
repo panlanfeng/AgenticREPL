@@ -26,8 +26,10 @@ class Repairer:
         quick = apply_quick_fix(original_input, error_message)
         if quick:
             return quick, None
-        _, code, summary = llm.run(original_input, error=error_message)
-        return code, summary
+        summary, tool_calls = llm.run(original_input, error=error_message)
+        if tool_calls and len(tool_calls) > 0:
+            return tool_calls[0], summary
+        return None, summary
 
 
 repairer = Repairer()

@@ -1,7 +1,6 @@
 import ast
 import re
 from .context import state
-from .llm import llm
 
 SHELL_COMMANDS = {
     "ls", "cd", "cat", "grep", "awk", "sed", "sort", "find", "head", "tail",
@@ -26,7 +25,6 @@ NL_KEYWORDS = [
     "please", "帮我", "帮我找",
 ]
 
-
 SHELL_PATTERNS = [
     r"\|", r">>", r">(?![=])", r"<(?!=)", r"&&", r"\|\|", r";",
     r"\$\(", r"`[^`]+`", r"\\\n",
@@ -44,6 +42,18 @@ def _looks_like_pseudocode(code):
     return False
 
 
+def _is_numeric_expr(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return True
+    if isinstance(node, ast.BinOp):
+        return _is_numeric_expr(node.left) and _is_numeric_expr(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _is_numeric_expr(node.operand)
+    if isinstance(node, ast.Name):
+        return node.id in ("True", "False", "None")
+    return False
+
+
 class Dispatcher:
     def __init__(self):
         pass
@@ -52,16 +62,12 @@ class Dispatcher:
         stripped = user_input.strip()
         if not stripped:
             return "empty"
-
         if _looks_like_pseudocode(stripped):
             return "unknown"
-
-        if self._is_shell(stripped):
-            return "shell"
-
         if self._is_python(stripped):
             return "python"
-
+        if self._is_shell(stripped):
+            return "shell"
         return "unknown"
 
     def _is_python(self, code):
@@ -83,7 +89,8 @@ class Dispatcher:
                     return True
                 if isinstance(node, ast.Expr) and len(tree.body) == 1:
                     if isinstance(node.value, (ast.BinOp, ast.UnaryOp)):
-                        return True
+                        if _is_numeric_expr(node.value):
+                            return True
             return False
         except SyntaxError:
             return False
@@ -99,13 +106,9 @@ class Dispatcher:
             return True
         if re.match(r"^[a-zA-Z0-9_\-\.]+\s+--?\w+", code):
             return True
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9_\-]*(\s|$)", code):
+            return True
         return False
-
-    def llm_dispatch(self, user_input):
-        lang, code, summary = llm.run(user_input)
-        if code is None:
-            return "shell", user_input, None
-        return lang or "shell", code, summary
 
 
 dispatcher = Dispatcher()
