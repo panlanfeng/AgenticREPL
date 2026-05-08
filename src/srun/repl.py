@@ -46,6 +46,7 @@ from .danger import check_danger
 from .executors.python_exec import PythonExecutor
 from .executors.shell_exec import ShellExecutor
 from .executors.r_exec import RExecutor
+from .user_config import get as config_get
 
 
 def main():
@@ -134,6 +135,11 @@ def _run_repl(py_exec, sh_exec, r_exec):
         start = time.perf_counter()
         category = dispatcher.classify(user_input)
         result = execute(category, user_input, py_exec, sh_exec, r_exec)
+
+        if result.get("llm_used") and config_get("confirm_llm_code"):
+            code = result.get("fixed_code") or result.get("generated_code") or ""
+            if code:
+                result = _confirm_execution(code, result, sh_exec, py_exec)
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         _log_turn(user_input, result, elapsed_ms)
@@ -146,6 +152,23 @@ def _handle_ssh(command, sh_exec):
     if error:
         return error
     return f"Connected to {sh_exec.remote} (type 'exit' to disconnect)"
+
+
+def _confirm_execution(code, result, sh_exec, py_exec):
+    print(f"\033[1;33m⟳  {code}\033[0m")
+    print("\033[2m[Enter] execute  [Ctrl+C] skip\033[0m")
+    try:
+        response = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        return {"success": True, "output": "skipped", "llm_used": True, "language": result.get("language")}
+    if response == "":
+        lang = result.get("language", "shell")
+        if lang == "python":
+            ok, out, *_ = py_exec.execute(code)
+        else:
+            ok, out, *_ = sh_exec.execute(code)
+        return {"success": ok, "output": out.strip() if out else "", "llm_used": True, "language": lang, "fixed_code": code}
+    return {"success": True, "output": "skipped", "llm_used": True, "language": result.get("language")}
 
 
 def _log_turn(user_input, result, elapsed_ms):
@@ -190,10 +213,13 @@ def _has_stderr_errors(stderr):
     return False
 
 
-def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
+def _retry_loop_shell(initial_input, sh_exec, max_rounds=None, initial_llm=False):
+    if max_rounds is None:
+        max_rounds = config_get("max_retry_rounds")
     current_input = initial_input
     llm_used = initial_llm
     repair_errors = []
+    attempts = []
     for attempt in range(max_rounds):
         success, output, *rest = sh_exec.execute(current_input)
         stderr = rest[0] if len(rest) > 0 else ""
@@ -206,10 +232,16 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
                 "repair_errors": repair_errors,
             }
         if attempt >= max_rounds - 1:
+            summary = "Gave up after {} {}.".format(
+                max_rounds, "rounds" if max_rounds > 1 else "round"
+            )
+            if attempts:
+                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
                 "repair_errors": repair_errors,
+                "summary": summary,
             }
         error_msg = output if not success else stderr
         fixed, used_llm, _ = try_repair(current_input, error_msg, "shell")
@@ -218,8 +250,10 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "shell",
                 "repair_errors": repair_errors,
+                "summary": "Unable to fix this command.",
             }
         repair_errors.append(error_msg)
+        attempts.append(fixed)
         llm_used = llm_used or used_llm
         danger, desc = check_danger(fixed)
         if danger:
@@ -233,9 +267,12 @@ def _retry_loop_shell(initial_input, sh_exec, max_rounds=4, initial_llm=False):
     return {"success": False, "output": "max retries", "llm_used": llm_used, "language": "shell", "repair_errors": repair_errors}
 
 
-def _retry_loop_python(initial_input, py_exec, max_rounds=4, initial_llm=False):
+def _retry_loop_python(initial_input, py_exec, max_rounds=None, initial_llm=False):
+    if max_rounds is None:
+        max_rounds = config_get("max_retry_rounds")
     current_input = initial_input
     llm_used = initial_llm
+    attempts = []
     for attempt in range(max_rounds):
         success, output, *extra = py_exec.execute(current_input)
         if success:
@@ -246,16 +283,22 @@ def _retry_loop_python(initial_input, py_exec, max_rounds=4, initial_llm=False):
                     "fixed_code": current_input if current_input != initial_input else None,
                 }
         if attempt >= max_rounds - 1:
+            summary = f"Gave up after {max_rounds} rounds."
+            if attempts:
+                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "python",
+                "summary": summary,
             }
         fixed, used_llm, _ = try_repair(current_input, output, "python")
         if fixed is None or fixed == current_input:
             return {
                 "success": False, "output": output.strip(),
                 "llm_used": llm_used, "language": "python",
+                "summary": "Unable to fix this command.",
             }
+        attempts.append(fixed)
         llm_used = llm_used or used_llm
         current_input = fixed
     return {"success": False, "output": "max retries", "llm_used": True, "language": "python"}
