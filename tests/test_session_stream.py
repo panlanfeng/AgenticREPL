@@ -352,10 +352,10 @@ class TestRSessionMode:
         assert "42" in out
 
     def test_r_execution_failure(self):
-        """R syntax errors should return failure."""
+        """R errors should return failure."""
         if not self.r.available:
-            pytest.skip("Rscript not available")
-        ok, out, *_ = self.r.execute("x <-")
+            pytest.skip("R not available")
+        ok, out, *_ = self.r.execute('stop("test error")')
         assert not ok
 
     def test_r_session_environment_tracking(self):

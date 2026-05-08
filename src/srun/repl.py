@@ -427,7 +427,14 @@ def _retry_loop_r(initial_input, r_exec, max_rounds=None):
     llm_used = False
     attempts = []
     for attempt in range(max_rounds):
-        success, output, *extra = r_exec.execute(current_input)
+        code = current_input
+        for pat in [r"^R\s+-e\s+'(.+)'\s*$", r'^R\s+-e\s+"(.+)"\s*$',
+                     r"^Rscript\s+-e\s+'(.+)'\s*$", r'^Rscript\s+-e\s+"(.+)"\s*$']:
+            m = re.match(pat, code)
+            if m:
+                code = m.group(1)
+                break
+        success, output, *extra = r_exec.execute(code)
         if success:
             state.last_lang = "r"
             state.current_language = "r"
