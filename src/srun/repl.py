@@ -59,6 +59,58 @@ from .executors.r_exec import RExecutor
 from .user_config import get as config_get
 
 
+def _is_incomplete(code, language):
+    """Return True if the code is an incomplete statement that needs more input."""
+    code = code.strip()
+    if not code:
+        return False
+
+    if language == "python":
+        try:
+            compile(code, "<input>", "exec")
+            return False
+        except SyntaxError as e:
+            msg = str(e)
+            if "unexpected EOF" in msg or "expected" in msg:
+                return True
+            return False
+        except Exception:
+            return False
+
+    if language == "r":
+        stripped = code.rstrip()
+        if not stripped:
+            return False
+        open_parens = stripped.count("(") - stripped.count(")")
+        open_braces = stripped.count("{") - stripped.count("}")
+        open_brackets = stripped.count("[") - stripped.count("]")
+        if open_parens > 0 or open_braces > 0 or open_brackets > 0:
+            return True
+        continuation_tokens = ("+", "-", "*", "/", "&", "|", "<", ">", "=",
+                               "%>%", "|>", "%<>%", "%$%", "%%",
+                               "in", "else", "then")
+        for tok in sorted(continuation_tokens, key=len, reverse=True):
+            if stripped.endswith(tok):
+                return True
+        return False
+
+    if language == "shell":
+        stripped = code.rstrip()
+        if not stripped:
+            return False
+        if stripped.endswith("\\"):
+            return True
+        if stripped.endswith("|") or stripped.endswith("&"):
+            last = stripped.split()[-1] if stripped.split() else ""
+            if last in ("|", "||", "|&", "&&"):
+                return True
+        if stripped.rstrip(";").endswith("do") or stripped.rstrip(";").endswith("then"):
+            return True
+        return False
+
+    return False
+
+
 def main():
     config_init()
     py_exec = PythonExecutor()
@@ -143,6 +195,29 @@ def _run_repl(py_exec, sh_exec, r_exec):
             continue
 
         lang = state.current_language
+
+        # --- accumulate multi-line input ---
+        if _is_incomplete(user_input, lang):
+            lines = [user_input]
+            cont_prompt = _rl_prompt("... ")
+            while True:
+                try:
+                    next_line = input(cont_prompt).rstrip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    user_input = "\n".join(lines)
+                    break
+                if not next_line:
+                    user_input = "\n".join(lines)
+                    break
+                lines.append(next_line)
+                combined = "\n".join(lines)
+                if not _is_incomplete(combined, lang):
+                    user_input = combined
+                    break
+            else:
+                user_input = "\n".join(lines)
+
         if lang == "python":
             if user_input.lower() in ("exit()", "quit()", "exit", "quit"):
                 state.current_language = "shell"
