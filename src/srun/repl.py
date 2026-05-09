@@ -35,6 +35,7 @@ try:
     tab_completer = _tab_completer
     readline.set_completer(_tab_completer)
     readline.parse_and_bind("tab: complete")
+    readline.parse_and_bind('"\\C-z": "\\C-d"')
 except ImportError:
     pass
 
