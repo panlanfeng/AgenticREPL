@@ -198,6 +198,7 @@ class SessionState:
         if info.get("tools_note"):
             lines.append(f"Note: {info['tools_note']}")
         lines.append(f"Current environment: {self.current_language}")
+        lines.append(f"Available sessions: shell, python, r (use 'language' field in run_command to target one)")
         return "\n".join(lines)
 
     def workspace_context(self):

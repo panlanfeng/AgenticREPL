@@ -5,7 +5,7 @@ This is ligthweight AI agent focusing on efficient code execution with high tole
 
 ## Core routing logic
 
-After user input, the classifer identify the input category. If the category is clear, immediately execute it in the right environment. If the input is ambiguous, go to llm. The llm check and decide the langauge to be used. The LLM firstly choose the langauge based on the user intention; say user stating this is XX langauge, it should firstly respect user intention;
+After user input, the classifer identify the input category. If the category is clear and match the current active language in REPL, immediately execute it in the current environment. If the input is ambiguous or category differs from the current active langauge, go to llm. The llm decides the langauge to be used and where it should be executed. The LLM firstly chooses the langauge based on the user intention; say user stating this is XX langauge, it should firstly respect user intention;
 secondly, it should then choose the same language as the current environment. During the tool call generation, LLM should generate a code that is directly executable without relying on another classifer. If the language of the generated code matches the current environment, it send the code to the current active session so the results are persistent. If the langauge of generated code is different from the current environment, identify if there is matching sessions in the backend. if yes, send it to the most recent matcing session. For example, the customer has R session in the backend and currently python is active. The user writes a R code in natural languae, the tool call should be executed in the that R session.  
 If user intention is not to generate any code, LLM replies back in text as well. The tool call in this case can be any langauge appropriate and executable.
 
@@ -30,6 +30,25 @@ pytest tests/test_synthetic_project.py -v -s  # simulated user session
 ```
 
 Always run fast tests after code changes. Only run LLM tests when LLM-related code changed.
+
+**Don't assume tests pass because they ran.** Verify each output against expected results. A failure is a failure — diagnose root cause first, then decide whether to fix code, fix test, or document as known limitation.
+
+Use the deepseek API token to run the llm tests.
+
+
+### Checklist
+
+- [ ] Normal shell commands execute within 20ms
+- [ ] Quick fixes (aliases, simple rules) complete within 20ms
+- [ ] Pseudocode/natural language correctly translated by LLM
+- [ ] Syntax errors/typos fixed by LLM and re-executed successfully
+- [ ] Dangerous commands properly blocked
+- [ ] `cd` persists across commands
+- [ ] `ll`/`la` aliases work
+- [ ] srun runs from any directory
+- [ ] LLM fix shown as `⟳` preview before execution
+
+
 
 ## Usage examples
 
@@ -62,20 +81,3 @@ User Input → classify (shell / python / unknown)
   │                            └─ fail → LLM repair → retry (max 4 rounds)
   └─ Unknown → LLM generates (language, code) → execute → ...
 ```
-
-## Tests
-
-**Don't assume tests pass because they ran.** Verify each output against expected results. A failure is a failure — diagnose root cause first, then decide whether to fix code, fix test, or document as known limitation.
-
-### Checklist
-
-- [ ] Normal shell commands execute within 20ms
-- [ ] Quick fixes (aliases, simple rules) complete within 20ms
-- [ ] Pseudocode/natural language correctly translated by LLM
-- [ ] Syntax errors/typos fixed by LLM and re-executed successfully
-- [ ] Dangerous commands properly blocked
-- [ ] `cd` persists across commands
-- [ ] `ll`/`la` aliases work
-- [ ] srun runs from any directory
-- [ ] LLM fix shown as `⟳` preview before execution
-

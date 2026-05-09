@@ -236,13 +236,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a command in the current REPL environment. Match the environment language shown in context: if shell, generate shell commands; if python, generate Python code. The command will be immediately executed.",
+            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "The command to execute, matching the current environment language"}
+                    "command": {"type": "string", "description": "The command or code to execute"},
+                    "language": {"type": "string", "enum": ["shell", "python", "r"], "description": "Target execution language: 'shell' for shell commands, 'python' for Python code, 'r' for R code. Default to the current environment language if unsure."},
                 },
-                "required": ["command"],
+                "required": ["command", "language"],
             },
         },
     },

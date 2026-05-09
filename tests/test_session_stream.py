@@ -109,7 +109,8 @@ class TestToolCalls:
             "LLM repair should return fixed command or summary"
         if cmds:
             # Verify the fix is different from original
-            assert "grep --nocolor" not in cmds[0], \
+            first_cmd = cmds[0] if isinstance(cmds[0], str) else cmds[0].get("command", "")
+            assert "grep --nocolor" not in first_cmd, \
                 f"LLM should fix the bad flag: {cmds}"
 
 
@@ -258,8 +259,9 @@ class TestRunCommandTool:
         summary, cmds = llm.run("ls -la")
         if cmds:
             assert len(cmds) > 0
-            assert isinstance(cmds[0], str)
-            assert len(cmds[0]) > 0
+            first = cmds[0]
+            cmd_str = first if isinstance(first, str) else first.get("command", "")
+            assert isinstance(cmd_str, str) and len(cmd_str) > 0
         else:
             assert summary is not None, "Either commands or summary expected"
 
@@ -386,7 +388,8 @@ class TestRSessionMode:
             "LLM should generate R code or text response"
         if cmds:
             # Should contain R-like code
-            for cmd in cmds:
+            for tc in cmds:
+                cmd = tc if isinstance(tc, str) else tc.get("command", "")
                 assert any(kw in cmd for kw in ("c(", "seq", "1:10", "rep(")), \
                     f"Expected R-style code, got: {cmd}"
 
@@ -399,7 +402,8 @@ class TestRSessionMode:
         summary, cmds = llm.run("create a list of numbers from 1 to 10")
         assert summary is not None or cmds is not None
         if cmds:
-            for cmd in cmds:
+            for tc in cmds:
+                cmd = tc if isinstance(tc, str) else tc.get("command", "")
                 assert any(kw in cmd for kw in ("range(", "list(", "for ")), \
                     f"Expected Python-style code, got: {cmd}"
 
@@ -422,8 +426,8 @@ class TestNaturalLanguageCrossLanguage:
         assert summary is not None or cmds is not None, \
             "Should generate response"
         if cmds:
-            is_shell_wrapper = any("python" in c for c in cmds)
-            is_pure_python = any("pd.DataFrame" in c or "import pandas" in c for c in cmds)
+            is_shell_wrapper = any("python" in (c if isinstance(c, str) else c.get("command", "")) for c in cmds)
+            is_pure_python = any("pd.DataFrame" in (c if isinstance(c, str) else c.get("command", "")) or "import pandas" in (c if isinstance(c, str) else c.get("command", "")) for c in cmds)
             assert is_shell_wrapper or is_pure_python, \
                 f"Expected python-related code, got: {cmds}"
 
@@ -443,6 +447,7 @@ class TestNaturalLanguageCrossLanguage:
         summary, cmds = self.llm.run("calculate the mean of numbers 1,2,3,4,5")
         assert summary is not None or cmds is not None
         if cmds:
-            for cmd in cmds:
+            for tc in cmds:
+                cmd = tc if isinstance(tc, str) else tc.get("command", "")
                 assert "mean" in cmd.lower() or "c(" in cmd, \
                     f"Expected R statistical code, got: {cmd}"

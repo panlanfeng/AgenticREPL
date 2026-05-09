@@ -28,7 +28,10 @@ class Repairer:
             return quick, None
         summary, tool_calls = llm.run(original_input, error=error_message)
         if tool_calls and len(tool_calls) > 0:
-            return tool_calls[0], summary
+            tc = tool_calls[0]
+            if isinstance(tc, dict):
+                return tc["command"], summary
+            return tc, summary
         return None, summary
 
 

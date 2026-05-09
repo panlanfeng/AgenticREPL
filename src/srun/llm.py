@@ -131,8 +131,9 @@ class LLM:
                                 continue
                             if tc.function.name == "run_command":
                                 cmd = args.get("command", "")
+                                lang = args.get("language", "shell")
                                 if cmd:
-                                    commands.append(cmd)
+                                    commands.append({"command": cmd, "language": lang})
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"queued: {cmd}"})
                             else:
                                 label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
@@ -170,12 +171,13 @@ class LLM:
                             except json.JSONDecodeError:
                                 continue
                             cmd = args.get("command", "")
+                            lang = args.get("language", "shell")
                             if cmd:
-                                commands.append(cmd)
+                                commands.append({"command": cmd, "language": lang})
                 if not commands and summary:
                     extracted = _extract_command_from_text(summary)
                     if extracted:
-                        commands = [extracted]
+                        commands = [{"command": extracted, "language": state.current_language}]
                 self._save_conversation(messages)
                 return summary, commands if commands else None
 

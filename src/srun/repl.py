@@ -101,14 +101,13 @@ def _run_file(path, py_exec, sh_exec, r_exec):
 
 def _run_repl(py_exec, sh_exec, r_exec):
     state.save()
-    python_session = False
-    r_session = False
 
     while True:
         try:
-            if python_session:
+            lang = state.current_language
+            if lang == "python":
                 prompt = "\033[1;35mpython>\033[0m "
-            elif r_session:
+            elif lang == "r":
                 prompt = "\033[1;34mR>\033[0m "
             elif sh_exec.remote:
                 prompt = f"{sh_exec.remote}\n\033[1;32msrun>\033[0m "
@@ -117,13 +116,12 @@ def _run_repl(py_exec, sh_exec, r_exec):
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
-            if python_session:
-                python_session = False
+            lang = state.current_language
+            if lang == "python":
                 state.current_language = "shell"
                 print("Exited Python session.")
                 continue
-            if r_session:
-                r_session = False
+            if lang == "r":
                 state.current_language = "shell"
                 print("Exited R session.")
                 continue
@@ -136,16 +134,15 @@ def _run_repl(py_exec, sh_exec, r_exec):
         if not user_input:
             continue
 
-        if python_session:
+        lang = state.current_language
+        if lang == "python":
             if user_input.lower() in ("exit()", "quit()", "exit", "quit"):
-                python_session = False
                 state.current_language = "shell"
                 print("Exited Python session.")
                 state.save()
                 continue
-        elif r_session:
+        elif lang == "r":
             if user_input.lower() in ("exit()", "quit()", "exit", "quit", "q()"):
-                r_session = False
                 state.current_language = "shell"
                 print("Exited R session.")
                 state.save()
@@ -154,29 +151,26 @@ def _run_repl(py_exec, sh_exec, r_exec):
             sh_exec.disconnect()
             print("Disconnected from remote.")
             continue
-        elif not sh_exec.remote and user_input.lower() in ("exit", "quit"):
+        elif lang == "shell" and user_input.lower() in ("exit", "quit"):
             break
 
-        if not python_session and not r_session and not sh_exec.remote and user_input.lower() == "python":
-            python_session = True
+        if lang == "shell" and not sh_exec.remote and user_input.lower() == "python":
             state.current_language = "python"
             print("Entered Python session (type 'exit()' to leave).")
             state.save()
             continue
 
-        if not python_session and not r_session and not sh_exec.remote and user_input.lower() == "r":
-            r_session = True
+        if lang == "shell" and not sh_exec.remote and user_input.lower() == "r":
             state.current_language = "r"
             if r_exec.available:
                 print("Entered R session (type 'exit()' to leave).")
             else:
                 print("R not available. Install rpy2 to enable R support.")
-                r_session = False
                 state.current_language = "shell"
             state.save()
             continue
 
-        if not python_session and not sh_exec.remote and user_input.startswith("ssh "):
+        if lang == "shell" and not sh_exec.remote and user_input.startswith("ssh "):
             result = _handle_ssh(user_input, sh_exec)
             if result is not None:
                 print(result)
@@ -184,18 +178,18 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
 
         start = time.perf_counter()
-        if python_session:
-            result = execute("python", user_input, py_exec, sh_exec, r_exec)
-        elif r_session:
-            result = execute("r", user_input, py_exec, sh_exec, r_exec)
-        else:
-            category = dispatcher.classify(user_input)
-            result = execute(category, user_input, py_exec, sh_exec, r_exec)
+        category = dispatcher.classify(user_input)
+
+        lang = state.current_language
+        if category in ("shell", "python", "r") and lang in ("python", "r") and category != lang:
+            category = "unknown"
+
+        result = execute(category, user_input, py_exec, sh_exec, r_exec)
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
             code = result.get("fixed_code") or result.get("generated_code") or ""
             if code:
-                result = _confirm_execution(code, result, sh_exec, py_exec)
+                result = _confirm_execution(code, result, sh_exec, py_exec, r_exec)
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         _log_turn(user_input, result, elapsed_ms)
@@ -210,7 +204,7 @@ def _handle_ssh(command, sh_exec):
     return f"Connected to {sh_exec.remote} (type 'exit' to disconnect)"
 
 
-def _confirm_execution(code, result, sh_exec, py_exec):
+def _confirm_execution(code, result, sh_exec, py_exec, r_exec):
     print(f"\033[1;33m⟳  {code}\033[0m")
     print("\033[2m[Enter] execute  [Ctrl+C] skip\033[0m")
     try:
@@ -221,6 +215,8 @@ def _confirm_execution(code, result, sh_exec, py_exec):
         lang = result.get("language", "shell")
         if lang == "python":
             ok, out, *_ = py_exec.execute(code)
+        elif lang == "r":
+            ok, out, *_ = r_exec.execute(code)
         else:
             ok, out, *_ = sh_exec.execute(code)
         return {"success": ok, "output": out.strip() if out else "", "llm_used": True, "language": lang, "fixed_code": code}
@@ -259,8 +255,6 @@ def _log_turn(user_input, result, elapsed_ms):
 
 
 def _has_stderr_errors(stderr):
-    if not stderr:
-        return False
     return False
 
 
@@ -344,6 +338,12 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
 
 
 def execute(category, user_input, py_exec, sh_exec, r_exec):
+    EXEC_MAP = {
+        "shell": (sh_exec, "shell"),
+        "python": (py_exec, "python"),
+        "r": (r_exec, "r"),
+    }
+
     if category == "empty":
         return {"success": True, "output": "", "llm_used": False, "language": None}
 
@@ -372,14 +372,24 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
             "language": "text",
         }
 
-    # Execute each tool call as shell (LLM wraps Python with python -c "...")
-    for cmd in tool_calls:
-        result = _retry_loop(cmd, sh_exec, "shell", initial_llm=True)
+    for tc in tool_calls:
+        if isinstance(tc, dict):
+            cmd = tc["command"]
+            lang = tc.get("language", current if current in EXEC_MAP else "shell")
+        else:
+            cmd = tc
+            lang = current if current in EXEC_MAP else "shell"
+        executor, lang_name = EXEC_MAP.get(lang, (sh_exec, "shell"))
+        result = _retry_loop(cmd, executor, lang_name, initial_llm=True)
         if not result["success"]:
             result["summary"] = summary
             return result
-    result = {"success": True, "output": "", "llm_used": True, "language": "shell",
-              "generated_code": tool_calls[0] if len(tool_calls) == 1 else None,
+
+    first_cmd = tool_calls[0]
+    gen_code = first_cmd["command"] if isinstance(first_cmd, dict) else first_cmd
+    result = {"success": True, "output": "", "llm_used": True,
+              "language": "shell",
+              "generated_code": gen_code if len(tool_calls) == 1 else None,
               "summary": summary}
     return result
 
