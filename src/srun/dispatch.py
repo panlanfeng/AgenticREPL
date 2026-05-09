@@ -58,6 +58,16 @@ def _is_numeric_expr(node):
     return False
 
 
+def _contains_numeric_constant(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return True
+    if isinstance(node, ast.BinOp):
+        return _contains_numeric_constant(node.left) or _contains_numeric_constant(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _contains_numeric_constant(node.operand)
+    return False
+
+
 class Dispatcher:
     def __init__(self):
         pass
@@ -93,7 +103,7 @@ class Dispatcher:
                     return True
                 if isinstance(node, ast.Expr) and len(tree.body) == 1:
                     if isinstance(node.value, (ast.BinOp, ast.UnaryOp)):
-                        if _is_numeric_expr(node.value):
+                        if _is_numeric_expr(node.value) or _contains_numeric_constant(node.value):
                             return True
             return False
         except SyntaxError:

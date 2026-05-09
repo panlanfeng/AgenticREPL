@@ -267,11 +267,6 @@ def _run_repl(py_exec, sh_exec, r_exec):
 
         start = time.perf_counter()
         category = dispatcher.classify(user_input)
-
-        lang = state.current_language
-        if category in ("shell", "python", "r") and lang in ("python", "r") and category != lang:
-            category = "unknown"
-
         result = execute(category, user_input, py_exec, sh_exec, r_exec)
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
@@ -438,6 +433,10 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
 
     if category == "empty":
         return {"success": True, "output": "", "llm_used": False, "language": None}
+
+    cur = state.current_language
+    if category in EXEC_MAP and cur in EXEC_MAP and category != cur and cur != "shell":
+        category = "unknown"
 
     if category == "python":
         return _retry_loop(user_input, py_exec, "python")
