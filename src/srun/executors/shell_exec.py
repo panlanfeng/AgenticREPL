@@ -2,6 +2,7 @@ import subprocess
 import os
 import re
 import shutil
+import shlex
 
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
@@ -73,7 +74,7 @@ class ShellExecutor:
     def execute(self, code):
         stripped = code.strip()
         if self._ssh_prefix:
-            code = f"{self._ssh_prefix} '{stripped}'"
+            code = f"{self._ssh_prefix} {shlex.quote(stripped)}"
         try:
             result = subprocess.run(
                 code,

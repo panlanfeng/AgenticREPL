@@ -24,7 +24,6 @@ SESSION_DIR = _session_dir()
 SESSION_ID = os.path.basename(SESSION_DIR)
 STATE_FILE = os.path.join(SESSION_DIR, "state.json")
 CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
-SHARED_STATE_FILE = os.path.join(BASE_DIR, "state.json")
 
 
 def get_system_info():
@@ -99,7 +98,6 @@ class SessionState:
         self.last_lang = "shell"
         self.current_language = "shell"
         self.history = []
-        self.last_output = ""
         self.last_dispatch_error = None
         self.code_cache = {}
         self.session_log = []
@@ -149,16 +147,6 @@ class SessionState:
         lines = text.strip().split("\n")
         return "\n".join(lines[-n:])
 
-    def log_cache(self, action, key, detail=None):
-        now = __import__("time").time()
-        entry = {"time": int(now), "action": action, "key": key[-20:]}
-        if detail:
-            entry["detail"] = detail
-        # append to a debug log file
-        log_file = os.path.join(SESSION_DIR, "debug.log")
-        with open(log_file, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-
     def add_var(self, name, meta):
         self.vars[name] = meta
 
@@ -182,11 +170,6 @@ class SessionState:
         if schema and "columns" in schema:
             return schema["columns"]
         return []
-
-    def add_history(self, entry):
-        self.history.append(entry)
-        if len(self.history) > 20:
-            self.history = self.history[-20:]
 
     def save(self):
         os.makedirs(SESSION_DIR, exist_ok=True)

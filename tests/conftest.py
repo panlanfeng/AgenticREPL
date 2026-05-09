@@ -10,10 +10,4 @@ def test_csv():
     return os.path.join(os.path.dirname(__file__), "data", "test.csv")
 
 
-@pytest.fixture
-def sample_df():
-    import pandas as pd
 
-    return pd.DataFrame(
-        {"name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35], "score": [95, 82, 78]}
-    )

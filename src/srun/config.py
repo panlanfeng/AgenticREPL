@@ -5,6 +5,7 @@ import subprocess
 
 SESSION_BASE = os.path.join(os.path.expanduser("~"), ".srun", "sessions")
 SESSION_MAX_AGE_DAYS = 90
+_init_done = False
 
 
 def clean_old_sessions():
@@ -49,8 +50,13 @@ def load_shell_env():
         pass
 
 
-load_shell_env()
-clean_old_sessions()
+def init():
+    global _init_done
+    if _init_done:
+        return
+    _init_done = True
+    load_shell_env()
+    clean_old_sessions()
 
 
 class Config:

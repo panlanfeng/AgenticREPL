@@ -10,8 +10,18 @@ DEFAULTS = {
     "max_retry_rounds": 4,
 }
 
+_cache = None
+_cache_mtime = 0
+
 
 def load():
+    global _cache, _cache_mtime
+    try:
+        mtime = os.path.getmtime(CONFIG_FILE)
+    except OSError:
+        mtime = 0
+    if _cache is not None and mtime == _cache_mtime:
+        return dict(_cache)
     cfg = dict(DEFAULTS)
     if os.path.isfile(CONFIG_FILE):
         try:
@@ -20,13 +30,21 @@ def load():
                 cfg.update(loaded)
         except (json.JSONDecodeError, IOError):
             pass
+    _cache = dict(cfg)
+    _cache_mtime = mtime
     return cfg
 
 
 def save(cfg):
+    global _cache, _cache_mtime
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
+    _cache = dict(cfg)
+    try:
+        _cache_mtime = os.path.getmtime(CONFIG_FILE)
+    except OSError:
+        _cache_mtime = 0
 
 
 def get(key):

@@ -5,6 +5,8 @@ This REPL is able to execute normal commands, psuedo code, code mixed with natur
 
 I uses coding agent as terminal to execute code in many cases instead of running it directly in terminal because coding agent is smarter with error tolerance. I don't want to hear from the shell telling me `xx` dependency is missing. I want it to not stop and wait for my input but just fix the minor errors and continue to wrok. However, a coding agent could still wait there for my instruction and a coding agent could be too heavy weight do the code execution job. This SRUN repl is particularly built for this cases and aim to execute it fast than a regular coding agent. 
 
+Why we need an AI agent that combine command execution and AI agent? Because AI agent will have more information and knows the user intention better. When user goes to python session and type in code in natural languages, then the AI agent is aware and it generates relevant code in python and exetute it. If AI agent has its own session separately, it will stick to its historical conversations, instead of focusing what the user actually want to achieve. 
+
 ## Usage Examples
 
 ```bash
@@ -16,7 +18,7 @@ $ srun
 ```
 
 
-## LLLM API Key setting
+## LLM API Key setting
 
 Bring your own API Key, for example add the following to your .bashrc or .zshrc.
 

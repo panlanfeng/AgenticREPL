@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import time
 import atexit
@@ -43,8 +42,9 @@ from .dispatch import dispatcher
 from .context import state
 from .logo import LOGO
 from .llm import llm
-from .repair import repairer, apply_quick_fix
+from .repair import repairer
 from .danger import check_danger
+from .config import init as config_init
 from .executors.python_exec import PythonExecutor
 from .executors.shell_exec import ShellExecutor
 from .executors.r_exec import RExecutor
@@ -52,6 +52,7 @@ from .user_config import get as config_get
 
 
 def main():
+    config_init()
     py_exec = PythonExecutor()
     sh_exec = ShellExecutor()
     r_exec = RExecutor()
@@ -260,123 +261,86 @@ def _log_turn(user_input, result, elapsed_ms):
 def _has_stderr_errors(stderr):
     if not stderr:
         return False
-    lower = stderr.lower()
-    for pattern in ["no such file", "command not found", "error", "permission denied",
-                    "not a directory", "cannot access", "not found"]:
-        if pattern in lower:
-            return True
     return False
 
 
-def _retry_loop_shell(initial_input, sh_exec, max_rounds=None, initial_llm=False):
+def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=False):
     if max_rounds is None:
         max_rounds = config_get("max_retry_rounds")
+    is_shell = language == "shell"
     current_input = initial_input
     llm_used = initial_llm
     repair_errors = []
     attempts = []
     last_summary = None
+
     for attempt in range(max_rounds):
-        success, output, *rest = sh_exec.execute(current_input)
+        success, output, *rest = executor.execute(current_input)
         stderr = rest[0] if len(rest) > 0 else ""
-        if success and not _has_stderr_errors(stderr):
-            state.last_lang = "shell"
-            state.current_language = "shell"
+        ok = success
+        if is_shell and ok and _has_stderr_errors(stderr):
+            ok = False
+
+        if ok:
+            state.last_lang = language
+            state.current_language = language
+            out = output.strip() if output else ""
             return {
-                "success": True, "output": output.strip(),
-                "llm_used": llm_used, "language": "shell",
+                "success": True, "output": out,
+                "llm_used": llm_used, "language": language,
                 "fixed_code": current_input if current_input != initial_input else None,
                 "repair_errors": repair_errors,
                 "summary": last_summary,
             }
+
         if attempt >= max_rounds - 1:
-            summary = "Gave up after {} {}.".format(
-                max_rounds, "rounds" if max_rounds > 1 else "round"
-            )
+            summary = f"Gave up after {max_rounds} {'rounds' if max_rounds > 1 else 'round'}."
             if attempts:
                 summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip(),
-                "llm_used": llm_used, "language": "shell",
-                "repair_errors": repair_errors,
+            result = {
+                "success": False, "output": output.strip() if output else "",
+                "llm_used": llm_used, "language": language,
                 "summary": summary,
             }
+            if is_shell:
+                result["repair_errors"] = repair_errors
+            return result
+
         error_msg = output if not success else stderr
-        fixed, used_llm, summary = try_repair(current_input, error_msg, "shell")
+        fixed, used_llm, summary = try_repair(current_input, error_msg, language)
         if summary:
             last_summary = summary
         if fixed is None or fixed == current_input:
             summary = "Unable to fix this command."
             if attempts:
                 summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip(),
-                "llm_used": llm_used, "language": "shell",
-                "repair_errors": repair_errors,
+            result = {
+                "success": False, "output": output.strip() if output else "",
+                "llm_used": llm_used, "language": language,
                 "summary": summary,
             }
-        repair_errors.append(error_msg)
+            if is_shell:
+                result["repair_errors"] = repair_errors
+            return result
+
+        if is_shell:
+            repair_errors.append(error_msg)
         attempts.append(fixed)
         llm_used = llm_used or used_llm
-        danger, desc = check_danger(fixed)
-        if danger:
-            return {
-                "success": False,
-                "output": f"BLOCKED: {desc}\nFixed: {fixed}",
-                "llm_used": llm_used, "language": "shell",
-                "repair_errors": repair_errors,
-            }
-        current_input = fixed
-    return {"success": False, "output": "max retries", "llm_used": llm_used, "language": "shell", "repair_errors": repair_errors}
 
-
-def _retry_loop_python(initial_input, py_exec, max_rounds=None, initial_llm=False):
-    if max_rounds is None:
-        max_rounds = config_get("max_retry_rounds")
-    current_input = initial_input
-    llm_used = initial_llm
-    attempts = []
-    for attempt in range(max_rounds):
-        code = current_input
-        m = re.match(r'^python3?\s+-c\s+"(.+)"\s*$', code)
-        if not m:
-            m = re.match(r"^python3?\s+-c\s+'(.+)'\s*$", code)
-        if not m:
-            m = re.match(r"^python3?\s+<<\s*'?EOF'?\s*\n(.+)\nEOF\s*$", code, re.DOTALL)
-        if m:
-            code = m.group(1)
-        success, output, *extra = py_exec.execute(code)
-        if success:
-            state.last_lang = "python"
-            state.current_language = "python"
-            return {
-                    "success": True, "output": output.strip(),
-                    "llm_used": llm_used, "language": "python",
-                    "fixed_code": current_input if current_input != initial_input else None,
+        if is_shell:
+            danger, desc = check_danger(fixed)
+            if danger:
+                return {
+                    "success": False,
+                    "output": f"BLOCKED: {desc}\nFixed: {fixed}",
+                    "llm_used": llm_used, "language": language,
+                    "repair_errors": repair_errors,
                 }
-        if attempt >= max_rounds - 1:
-            summary = f"Gave up after {max_rounds} rounds."
-            if attempts:
-                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip(),
-                "llm_used": llm_used, "language": "python",
-                "summary": summary,
-            }
-        fixed, used_llm, _ = try_repair(current_input, output, "python")
-        if fixed is None or fixed == current_input:
-            summary = "Unable to fix this command."
-            if attempts:
-                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip(),
-                "llm_used": llm_used, "language": "python",
-                "summary": summary,
-            }
-        attempts.append(fixed)
-        llm_used = llm_used or used_llm
+
         current_input = fixed
-    return {"success": False, "output": "max retries", "llm_used": True, "language": "python"}
+
+    return {"success": False, "output": "max retries", "llm_used": llm_used, "language": language}
 
 
 def execute(category, user_input, py_exec, sh_exec, r_exec):
@@ -384,13 +348,13 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
         return {"success": True, "output": "", "llm_used": False, "language": None}
 
     if category == "python":
-        return _retry_loop_python(user_input, py_exec)
+        return _retry_loop(user_input, py_exec, "python")
 
     if category == "r":
-        return _retry_loop_r(user_input, r_exec)
+        return _retry_loop(user_input, r_exec, "r")
 
     if category == "shell":
-        return _retry_loop_shell(user_input, sh_exec)
+        return _retry_loop(user_input, sh_exec, "shell")
 
     summary, tool_calls = llm.run(user_input)
     if tool_calls is None and summary is None:
@@ -410,7 +374,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
 
     # Execute each tool call as shell (LLM wraps Python with python -c "...")
     for cmd in tool_calls:
-        result = _retry_loop_shell(cmd, sh_exec, initial_llm=True)
+        result = _retry_loop(cmd, sh_exec, "shell", initial_llm=True)
         if not result["success"]:
             result["summary"] = summary
             return result
@@ -420,65 +384,13 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     return result
 
 
-def _retry_loop_r(initial_input, r_exec, max_rounds=None):
-    if max_rounds is None:
-        max_rounds = config_get("max_retry_rounds")
-    current_input = initial_input
-    llm_used = False
-    attempts = []
-    for attempt in range(max_rounds):
-        code = current_input
-        for pat in [r"^R\s+-e\s+'(.+)'\s*$", r'^R\s+-e\s+"(.+)"\s*$',
-                     r"^Rscript\s+-e\s+'(.+)'\s*$", r'^Rscript\s+-e\s+"(.+)"\s*$']:
-            m = re.match(pat, code)
-            if m:
-                code = m.group(1)
-                break
-        success, output, *extra = r_exec.execute(code)
-        if success:
-            state.last_lang = "r"
-            state.current_language = "r"
-            return {
-                "success": True, "output": output.strip() if output else "",
-                "llm_used": llm_used, "language": "r",
-                "fixed_code": current_input if current_input != initial_input else None,
-            }
-        if attempt >= max_rounds - 1:
-            summary = f"Gave up after {max_rounds} rounds."
-            if attempts:
-                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip() if output else "",
-                "llm_used": llm_used, "language": "r",
-                "summary": summary,
-            }
-        fixed, used_llm, _ = try_repair(current_input, output, "r")
-        if fixed is None or fixed == current_input:
-            summary = "Unable to fix this command."
-            if attempts:
-                summary += " Tried: " + "; ".join(a[:60] for a in attempts) + "."
-            return {
-                "success": False, "output": output.strip() if output else "",
-                "llm_used": llm_used, "language": "r",
-                "summary": summary,
-            }
-        attempts.append(fixed)
-        llm_used = llm_used or used_llm
-        current_input = fixed
-    return {"success": False, "output": "max retries", "llm_used": True, "language": "r"}
-
-
 def try_repair(original, error_msg, language):
-    quick = apply_quick_fix(original, error_msg)
-    if quick:
-        return quick, False, None
-
     for _ in range(3):
         fixed, summary = repairer.fix(original, error_msg, language)
         if fixed is None:
             return None, False, None
         if fixed != original:
-            return fixed, True, summary
+            return fixed, summary is not None, summary
         original = fixed
     return None, False, None
 

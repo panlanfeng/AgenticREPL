@@ -14,7 +14,7 @@ SHELL_COMMANDS = {
     "source", ".", "code", "vim", "nvim", "nano", "ping", "traceroute", "netstat",
     "ifconfig", "lsof", "mount", "umount", "tee", "xargs", "jq", "yq", "watch",
     "crontab", "alias", "type", "fg", "bg", "jobs", "dirname", "basename",
-    "ll", "la", "l",
+    "ll", "la", "l", "sudo", "su", "exec", "nice", "nohup", "time", "perf",
 }
 
 NL_KEYWORDS = [

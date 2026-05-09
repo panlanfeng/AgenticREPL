@@ -87,7 +87,7 @@ class TestToolCalls:
     def test_read_file_tool(self):
         from srun.tools import read_file
         path = os.path.join(os.path.dirname(__file__), "..", "AGENTS.md")
-        result = read_file(path, max_lines=5)
+        result = read_file(path, lines=5)
         assert result is not None
         assert "srun" in result.lower() or "Smart" in result
 
@@ -307,23 +307,25 @@ class TestPythonSessionMode:
         assert result["success"]
         assert "4.0" in result.get("output", "")
 
-    def test_python_wrapper_stripping(self):
-        """python -c wrapper should be stripped in Python mode."""
-        result = execute("python", 'python -c "print(42)"', self.py, self.sh, self.r)
+    def test_python_direct_code(self):
+        """Pure Python code should execute directly."""
+        result = execute("python", "print(42)", self.py, self.sh, self.r)
         assert result["success"]
         assert "42" in result.get("output", "")
 
-    def test_python3_wrapper_stripping(self):
-        """python3 -c wrapper should be stripped in Python mode."""
-        result = execute("python", "python3 -c \"print(99)\"", self.py, self.sh, self.r)
+    def test_python_assignment_and_use(self):
+        """Assignment should persist across commands."""
+        execute("python", "z = 7", self.py, self.sh, self.r)
+        result = execute("python", "z * 3", self.py, self.sh, self.r)
         assert result["success"]
-        assert "99" in result.get("output", "")
+        assert "21" in result.get("output", "")
 
     def test_python_session_environment_tracking(self):
         """current_language should be set to python during Python session."""
         state.current_language = "python"
         assert state.current_language == "python"
         state.current_language = "shell"
+
 
 
 class TestRSessionMode:
@@ -444,42 +446,3 @@ class TestNaturalLanguageCrossLanguage:
             for cmd in cmds:
                 assert "mean" in cmd.lower() or "c(" in cmd, \
                     f"Expected R statistical code, got: {cmd}"
-
-
-class TestPythonShellWrapperStripping:
-    """Test the regex that strips shell wrappers from Python code."""
-
-    def setup_method(self):
-        import re
-        self.re = re
-
-    def _extract(self, code):
-        m = self.re.match(r'^python3?\s+-c\s+"(.+)"\s*$', code)
-        if not m:
-            m = self.re.match(r"^python3?\s+-c\s+'(.+)'\s*$", code)
-        if not m:
-            m = self.re.match(r"^python3?\s+<<\s*'?EOF'?\s*\n(.+)\nEOF\s*$", code, self.re.DOTALL)
-        return m.group(1) if m else code
-
-    def test_strip_python_c_double_quotes(self):
-        result = self._extract('python -c "print(42)"')
-        assert result == "print(42)"
-
-    def test_strip_python3_c_double_quotes(self):
-        result = self._extract('python3 -c "print(99)"')
-        assert result == "print(99)"
-
-    def test_strip_python_c_single_quotes(self):
-        result = self._extract("python -c 'print(42)'")
-        assert result == "print(42)"
-
-    def test_strip_heredoc(self):
-        result = self._extract("""python << 'EOF'
-import pandas as pd
-df = pd.DataFrame()
-EOF""")
-        assert "import pandas as pd" in result
-
-    def test_no_wrapper_passthrough(self):
-        result = self._extract("print(42)")
-        assert result == "print(42)"

@@ -3,10 +3,19 @@
 
 This is ligthweight AI agent focusing on efficient code execution with high tolerance to user input or code errors. It provide REPL for interactive usage `srun` and one time execution `srun test.sh`. The SRUN puts command execution first. Normal command will be executed with no extra latency and AI agent is only invoked when user user input is ambiguous or not directly executable. 
 
+## Core routing logic
+
+After user input, the classifer identify the input category. If the category is clear, immediately execute it in the right environment. If the input is ambiguous, go to llm. The llm check and decide the langauge to be used. The LLM firstly choose the langauge based on the user intention; say user stating this is XX langauge, it should firstly respect user intention;
+secondly, it should then choose the same language as the current environment. During the tool call generation, LLM should generate a code that is directly executable without relying on another classifer. If the language of the generated code matches the current environment, it send the code to the current active session so the results are persistent. If the langauge of generated code is different from the current environment, identify if there is matching sessions in the backend. if yes, send it to the most recent matcing session. For example, the customer has R session in the backend and currently python is active. The user writes a R code in natural languae, the tool call should be executed in the that R session.  
+If user intention is not to generate any code, LLM replies back in text as well. The tool call in this case can be any langauge appropriate and executable.
+
+Add a system reminder message about the current active execution language, python or shell and inject into the context; Update and send the system reminder again when user entered a different session mode. Simiarly, when user used a different python version in the user input. if the new version python works, update the state about this new python version.
+
 ## Code style
 
 - Separate REPL UI code from the AI agent. 
 - Add clear comments for each main lines. Document every key designs. 
+- The deisgn should be generally applicable for all languages and minimize language specific customizations.
 - When user input is clearly code, execute it immediately. LLM intervenes only when the input is ambiguous or when execution fails. 
 - When Users execute files or multi-line code — understand the overall user intention first but recommend to execute commands one by one, repairing errors individually.
 

@@ -8,9 +8,12 @@ import shutil
 
 
 def get_command_help(command):
-    command = command.strip().split()[0]
+    parts = command.strip().split()
+    if not parts:
+        return "No help found for ''"
+    cmd = parts[0]
     outs = []
-    for method in [f"{command} --help 2>&1", f"man {command} 2>&1 | col -b"]:
+    for method in [f"{cmd} --help 2>&1", f"man {cmd} 2>&1 | col -b"]:
         try:
             r = subprocess.run(
                 method,
@@ -32,7 +35,7 @@ def get_command_help(command):
                     break
         except Exception:
             pass
-    return outs[0] if outs else f"No help found for '{command}'"
+    return outs[0] if outs else f"No help found for '{cmd}'"
 
 
 def search_files(pattern):
@@ -58,7 +61,7 @@ def search_files(pattern):
     return "\n".join(matches[:20])
 
 
-def read_file(path, max_lines=None):
+def read_file(path, lines=None):
     resolved = os.path.expanduser(path)
     if not os.path.isabs(resolved):
         resolved = os.path.join(os.getcwd(), resolved)
@@ -67,8 +70,8 @@ def read_file(path, max_lines=None):
     try:
         size = os.path.getsize(resolved)
         with open(resolved, encoding="utf-8", errors="replace") as f:
-            if max_lines:
-                content = "".join(f.readline() for _ in range(max_lines))
+            if lines:
+                content = "".join(f.readline() for _ in range(lines))
             elif size > 100 * 1024:
                 content = f.read(5000) + f"\n... (truncated, {size}B total)"
             else:

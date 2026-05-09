@@ -125,7 +125,10 @@ class LLM:
                             msg_dict["tool_calls"].append(tc_dict)
                         messages.append(msg_dict)
                         for tc in tool_calls:
-                            args = json.loads(tc.function.arguments)
+                            try:
+                                args = json.loads(tc.function.arguments)
+                            except json.JSONDecodeError:
+                                continue
                             if tc.function.name == "run_command":
                                 cmd = args.get("command", "")
                                 if cmd:
@@ -145,7 +148,10 @@ class LLM:
                         msg_dict["tool_calls"].append(tc_dict)
                     messages.append(msg_dict)
                     for tc in tool_calls:
-                        args = json.loads(tc.function.arguments)
+                        try:
+                            args = json.loads(tc.function.arguments)
+                        except json.JSONDecodeError:
+                            continue
                         label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
                         val = list(args.values())[0] if args else ""
                         print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
@@ -159,7 +165,10 @@ class LLM:
                     commands = []
                     for tc in tool_calls:
                         if tc.function.name == "run_command":
-                            args = json.loads(tc.function.arguments)
+                            try:
+                                args = json.loads(tc.function.arguments)
+                            except json.JSONDecodeError:
+                                continue
                             cmd = args.get("command", "")
                             if cmd:
                                 commands.append(cmd)
@@ -170,6 +179,10 @@ class LLM:
                 self._save_conversation(messages)
                 return summary, commands if commands else None
 
+            except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                state.last_dispatch_error = str(e)
+                self._save_conversation(messages)
+                return None, None
             except Exception as e:
                 state.last_dispatch_error = str(e)
                 self._save_conversation(messages)
@@ -212,64 +225,6 @@ class LLM:
             "total_tokens": total,
             "rate": self.cache_hit_rate,
         }
-
-    def _parse(self, text, original_input):
-        if not text:
-            return None, None
-        summary = None
-        tool_calls = None
-
-        def _extract(d):
-            nonlocal summary, tool_calls
-            summary = d.get("summary", "")
-            tc = d.get("tool_calls")
-            if tc and isinstance(tc, list) and len(tc) > 0:
-                tool_calls = [t.get("command", "") for t in tc if t.get("command")]
-            return tool_calls or summary
-
-        try:
-            parsed = json.loads(text)
-            if _extract(parsed):
-                return summary, tool_calls
-        except json.JSONDecodeError:
-            pass
-        obj = self._extract_json(text)
-        if obj:
-            if _extract(obj):
-                return summary, tool_calls
-        return None, None
-
-    @staticmethod
-    def _extract_json(text):
-        start = text.find("{")
-        if start == -1:
-            return None
-        depth = 0
-        i = start
-        in_string = False
-        escape = False
-        while i < len(text):
-            c = text[i]
-            if escape:
-                escape = False
-                i += 1
-                continue
-            if c == "\\":
-                escape = True
-            elif c == '"':
-                in_string = not in_string
-            elif not in_string:
-                if c == "{":
-                    depth += 1
-                elif c == "}":
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            return json.loads(text[start:i + 1])
-                        except json.JSONDecodeError:
-                            return None
-            i += 1
-        return None
 
 
 llm = LLM()
