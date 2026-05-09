@@ -402,8 +402,17 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
 
         if is_shell:
             repair_errors.append(error_msg)
+        else:
+            repair_errors.append(error_msg)
         attempts.append(fixed)
         llm_used = llm_used or used_llm
+
+        if used_llm and fixed:
+            state.add_conversation_turn(
+                user_msg=f"The user typed: {current_input}",
+                assistant_code=fixed,
+                error_output=error_msg,
+            )
 
         if is_shell:
             danger, desc = check_danger(fixed)

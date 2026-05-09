@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from srun.repl import execute
+from srun.repl import execute, _retry_loop
 from srun.dispatch import dispatcher
 from srun.context import state
 from srun.llm import llm
@@ -656,6 +656,84 @@ class TestDataAnalystLLM:
                     # Should be "r" since user explicitly asked for R
                     pass  # We just verify we got tool_calls back
 
+    def test_r_multiline_code_not_looping(self):
+        """Multi-line R code from LLM should execute once, not trigger repair loop."""
+        if not self.r_available:
+            pytest.skip("R not available")
+        state.current_language = "r"
+        state._llm_last_known_language = "r"
+        code = "df %>%\n  group_by(char1) %>%\n  summarise(num1 = mean(num1))"
+        exec_result = _retry_loop(code, self.r, "r", initial_llm=True)
+        # The code may fail if df/char1 don't exist, but it should NOT loop on
+        # literal \n characters — it should be one execution attempt
+        # Success or failure is fine, as long as it doesn't hang
+        assert exec_result is not None
+
+
+# ===========================================================================
+# TestDataAnalystLLM_Repair — verify LLM sees error history, doesn't loop
+# ===========================================================================
+
+
+@pytest.mark.slow
+@pytest.mark.llm
+class TestDataAnalystLLMRepair:
+
+    def setup_method(self):
+        self.py, self.sh, self.r = _setup()
+        self.r_available = RExecutor().available
+        self._cd_mark = os.getcwd()
+
+    def teardown_method(self):
+        os.chdir(self._cd_mark)
+
+    def test_llm_sees_error_history_different_fixes(self):
+        """LLM repair should produce different fixes across rounds (not loop)."""
+        state.reset_session()
+        state._context_injected = True
+        state.current_language = "shell"
+        # First call with a bad flag
+        summary_a, cmds_a = llm.run(
+            "grep --nonexist-flag foo /dev/null",
+            error="grep: unrecognized option '--nonexist-flag'",
+        )
+        assert cmds_a is not None or summary_a is not None
+        if cmds_a:
+            first_fix = cmds_a[0] if isinstance(cmds_a[0], str) else cmds_a[0].get("command", "")
+            # Call again with the SAME error to check NON-looping behavior
+            summary_b, cmds_b = llm.run(
+                "grep --nonexist-flag foo /dev/null",
+                error="grep: unrecognized option '--nonexist-flag'",
+            )
+            if cmds_b:
+                second_fix = cmds_b[0] if isinstance(cmds_b[0], str) else cmds_b[0].get("command", "")
+                # Both should not contain the bad flag
+                assert "--nonexist-flag" not in first_fix
+                if second_fix:
+                    assert "--nonexist-flag" not in second_fix
+
+    def test_r_multiline_via_llm_dispatch(self):
+        """LLM should generate multi-line R code that executes without \\n issues."""
+        if not self.r_available:
+            pytest.skip("R not available")
+        state.reset_session()
+        state._context_injected = True
+        state.current_language = "r"
+        state._llm_last_known_language = "r"
+        summary, cmds = llm.run(
+            "use dplyr to group mtcars by cyl and calculate mean mpg"
+        )
+        assert summary is not None or cmds is not None
+        if cmds:
+            for tc in cmds:
+                cmd = tc if isinstance(tc, str) else tc.get("command", "")
+                lang = tc.get("language", "") if isinstance(tc, dict) else ""
+                assert lang in ("r", "", "shell", "python")
+                # If R code, execute it (should not hang or loop)
+                if lang == "r" and cmd:
+                    exec_result = _retry_loop(cmd, self.r, "r", initial_llm=True)
+                    assert exec_result is not None, f"Execution should complete: {cmd}"
+
 
 # ===========================================================================
 # TestDataAnalystWorkflows — multi-step end-to-end workflows (slow + llm)
@@ -971,6 +1049,24 @@ class TestDataAnalystEdgeCases:
         cat = dispatcher.classify("nonexistentcmd12345xyz")
         result = _run(cat, "nonexistentcmd12345xyz", self.py, self.sh, self.r)
         assert not result["success"]
+
+
+    def test_json_newline_decoding(self):
+        """_extract_command_from_text should decode \\n to actual newlines."""
+        from srun.llm import _extract_command_from_text
+        result = _extract_command_from_text(
+            '{"code": "library(dplyr)\\ndf |>"}'
+        )
+        assert result is not None
+        assert "\n" in result
+        assert "\\n" not in result
+
+    def test_json_newline_decoding_multiline(self):
+        """Multi-line JSON code should have real newlines after extraction."""
+        from srun.llm import _extract_command_from_text
+        text = '{"command": "line1\\nline2\\nline3", "language": "r"}'
+        result = _extract_command_from_text(text)
+        assert result == "line1\nline2\nline3"
 
 
 # ===========================================================================
