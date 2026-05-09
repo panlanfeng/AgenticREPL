@@ -161,6 +161,7 @@ def _run_file(path, py_exec, sh_exec, r_exec):
 
 def _run_repl(py_exec, sh_exec, r_exec):
     state.save()
+    _exit_pending = False
 
     while True:
         try:
@@ -189,7 +190,11 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 sh_exec.disconnect()
                 print("Disconnected from remote.")
                 continue
-            break
+            if _exit_pending:
+                break
+            _exit_pending = True
+            print("Press Ctrl+D again to exit srun.")
+            continue
 
         if not user_input:
             continue
