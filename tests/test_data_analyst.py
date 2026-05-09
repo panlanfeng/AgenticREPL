@@ -728,7 +728,7 @@ class TestDataAnalystLLMRepair:
             for tc in cmds:
                 cmd = tc if isinstance(tc, str) else tc.get("command", "")
                 lang = tc.get("language", "") if isinstance(tc, dict) else ""
-                assert lang in ("r", "", "shell", "python")
+                assert lang == "r", f"Expected language='r' for R NL task, got lang='{lang}' cmd={cmd[:60]}"
                 # If R code, execute it (should not hang or loop)
                 if lang == "r" and cmd:
                     exec_result = _retry_loop(cmd, self.r, "r", initial_llm=True)

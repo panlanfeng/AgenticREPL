@@ -314,14 +314,13 @@ def _log_turn(user_input, result, elapsed_ms):
     lang = result.get("language", "")
     repair_errors = result.get("repair_errors", [])
 
-    if llm_used:
-        code = fixed or generated or user_input
+    if llm_used and not fixed:
+        code = generated or user_input
         if code:
-            error_text = "\n".join(repair_errors) if repair_errors else None
             state.add_conversation_turn(
                 user_msg=f"The user typed: {user_input}",
                 assistant_code=code,
-                error_output=error_text,
+                error_output=None,
             )
 
     state.log_entry(
@@ -400,10 +399,7 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
                 result["repair_errors"] = repair_errors
             return result
 
-        if is_shell:
-            repair_errors.append(error_msg)
-        else:
-            repair_errors.append(error_msg)
+        repair_errors.append(error_msg)
         attempts.append(fixed)
         llm_used = llm_used or used_llm
 
