@@ -375,10 +375,10 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     for tc in tool_calls:
         if isinstance(tc, dict):
             cmd = tc["command"]
-            lang = tc.get("language", current if current in EXEC_MAP else "shell")
+            lang = tc.get("language", state.current_language if state.current_language in EXEC_MAP else "shell")
         else:
             cmd = tc
-            lang = current if current in EXEC_MAP else "shell"
+            lang = state.current_language if state.current_language in EXEC_MAP else "shell"
         executor, lang_name = EXEC_MAP.get(lang, (sh_exec, "shell"))
         result = _retry_loop(cmd, executor, lang_name, initial_llm=True)
         if not result["success"]:
