@@ -1058,15 +1058,16 @@ class TestDataAnalystEdgeCases:
             '{"code": "library(dplyr)\\ndf |>"}'
         )
         assert result is not None
-        assert "\n" in result
-        assert "\\n" not in result
+        assert "\n" in result["command"]
+        assert "\\n" not in result["command"]
 
     def test_json_newline_decoding_multiline(self):
         """Multi-line JSON code should have real newlines after extraction."""
         from srun.llm import _extract_command_from_text
         text = '{"command": "line1\\nline2\\nline3", "language": "r"}'
         result = _extract_command_from_text(text)
-        assert result == "line1\nline2\nline3"
+        assert result["command"] == "line1\nline2\nline3"
+        assert result["language"] == "r"
 
 
 # ===========================================================================

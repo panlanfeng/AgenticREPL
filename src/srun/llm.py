@@ -14,14 +14,20 @@ from .tools import TOOL_DEFINITIONS, execute_tool
 def _extract_command_from_text(text):
     if not text:
         return None
-    for pattern in [r'\{\s*"command"\s*:\s*"((?:[^"\\]|\\.)*)"', r'\{\s*"code"\s*:\s*"((?:[^"\\]|\\.)*)"']:
+    for cmd_key in ("command", "code"):
+        pattern = r'\{\s*"' + cmd_key + r'"\s*:\s*"((?:[^"\\]|\\.)*)"'
         m = re.search(pattern, text)
         if m:
             raw = m.group(1)
             try:
-                return json.loads('"' + raw + '"')
+                cmd = json.loads('"' + raw + '"')
             except (json.JSONDecodeError, UnicodeDecodeError):
-                return raw
+                cmd = raw
+            lang = None
+            lang_m = re.search(r'"language"\s*:\s*"(\w+)"', text)
+            if lang_m:
+                lang = lang_m.group(1)
+            return {"command": cmd, "language": lang}
     return None
 
 
@@ -181,7 +187,8 @@ class LLM:
                 if not commands and summary:
                     extracted = _extract_command_from_text(summary)
                     if extracted:
-                        commands = [{"command": extracted, "language": state.current_language}]
+                        lang = extracted.get("language") or state.current_language
+                        commands = [{"command": extracted["command"], "language": lang}]
                 self._save_conversation(messages)
                 return summary, commands if commands else None
 
