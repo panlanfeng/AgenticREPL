@@ -38,6 +38,14 @@ try:
 except ImportError:
     pass
 
+import re as _re
+
+
+def _rl_prompt(s):
+    """Wrap ANSI escapes so readline knows they are zero-width."""
+    return _re.sub(r"(\x1b\[[0-9;]*m)", r"\001\1\002", s)
+
+
 from .dispatch import dispatcher
 from .context import state
 from .logo import LOGO
@@ -106,13 +114,13 @@ def _run_repl(py_exec, sh_exec, r_exec):
         try:
             lang = state.current_language
             if lang == "python":
-                prompt = "\033[1;35mpython>\033[0m "
+                prompt = _rl_prompt("\033[1;35mpython>\033[0m ")
             elif lang == "r":
-                prompt = "\033[1;34mR>\033[0m "
+                prompt = _rl_prompt("\033[1;34mR>\033[0m ")
             elif sh_exec.remote:
-                prompt = f"{sh_exec.remote}\n\033[1;32msrun>\033[0m "
+                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32msrun>\033[0m ')}"
             else:
-                prompt = f"{os.getcwd()}\n\033[1;32msrun>\033[0m "
+                prompt = f"{os.getcwd()}\n{_rl_prompt('\033[1;32msrun>\033[0m ')}"
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
@@ -380,18 +388,17 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
             cmd = tc
             lang = state.current_language if state.current_language in EXEC_MAP else "shell"
         executor, lang_name = EXEC_MAP.get(lang, (sh_exec, "shell"))
-        result = _retry_loop(cmd, executor, lang_name, initial_llm=True)
-        if not result["success"]:
-            result["summary"] = summary
-            return result
+        exec_result = _retry_loop(cmd, executor, lang_name, initial_llm=True)
+        if not exec_result["success"]:
+            exec_result["summary"] = summary
+            return exec_result
 
     first_cmd = tool_calls[0]
     gen_code = first_cmd["command"] if isinstance(first_cmd, dict) else first_cmd
-    result = {"success": True, "output": "", "llm_used": True,
-              "language": "shell",
-              "generated_code": gen_code if len(tool_calls) == 1 else None,
-              "summary": summary}
-    return result
+    return {"success": True, "output": exec_result.get("output", ""), "llm_used": True,
+            "language": exec_result.get("language", lang_name),
+            "generated_code": gen_code if len(tool_calls) == 1 else None,
+            "summary": summary}
 
 
 def try_repair(original, error_msg, language):
