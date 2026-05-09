@@ -359,7 +359,6 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
 
         if ok:
             state.last_lang = language
-            state.current_language = language
             out = output.strip() if output else ""
             return {
                 "success": True, "output": out,
