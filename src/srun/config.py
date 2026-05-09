@@ -61,9 +61,8 @@ def init():
 
 class Config:
     def __init__(self):
-        self.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-        self.api_base = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
-        self.model = os.environ.get("SRUN_MODEL", "deepseek-chat")
+        from .user_config import get_api_config
+        self.api_key, self.api_base, self.model = get_api_config()
         self.max_retries = 3
 
     @property

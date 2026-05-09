@@ -117,11 +117,6 @@ class SessionState:
         self._context_injected = False
         self._llm_last_known_language = self.current_language
 
-    def startup_context(self):
-        sys_info = self.llm_context()
-        ws_info = self.workspace_context()
-        return f"{sys_info}\n{ws_info}"
-
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
         for entry in self._conversation:
@@ -200,6 +195,16 @@ class SessionState:
         lines.append(f"Current environment: {self.current_language}")
         lines.append(f"Available sessions: shell, python, r (use 'language' field in run_command to target one)")
         return "\n".join(lines)
+
+    def startup_context(self):
+        sys_info = self.llm_context()
+        ws_info = self.workspace_context()
+        api_note = ""
+        from .config import config
+        if not config.has_llm:
+            api_note = ("\nAPI: No API key configured. To use natural language and repair, set api_key in ~/.srun/user_config.json "
+                        "(or export DEEPSEEK_API_KEY). Tell the user to type 'srun configure-api' or update the config file manually.")
+        return f"{sys_info}\n{ws_info}{api_note}"
 
     def workspace_context(self):
         info = get_system_info()

@@ -78,9 +78,19 @@ def read_file(path, lines=None):
                 content = f.read(10000)
                 if len(content) >= 10000:
                     content += f"\n... (truncated)"
+        content = _redact_secrets(resolved, content)
         return f"--- {resolved} ({size}B) ---\n{content}"
     except Exception as e:
         return f"Error reading {path}: {e}"
+
+
+def _redact_secrets(path, content):
+    """Strip API keys from config files before sending to LLM."""
+    config_file = os.path.join(os.path.expanduser("~"), ".srun", "user_config.json")
+    if os.path.realpath(path) == os.path.realpath(config_file):
+        import re
+        content = re.sub(r'"api_key"\s*:\s*"[^"]*"', '"api_key": "***"', content)
+    return content
 
 
 def _sys_platform():

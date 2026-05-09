@@ -120,7 +120,10 @@ def main():
     state.reset_session()
 
     print(LOGO)
-    print(f"LLM: {'available' if llm.client else 'unavailable'}")
+    if llm.client:
+        print(f"LLM: ready ({config.model})")
+    else:
+        print("LLM: no API key — set api_key in ~/.srun/user_config.json or export DEEPSEEK_API_KEY")
 
     if len(sys.argv) > 1:
         _run_file(sys.argv[1], py_exec, sh_exec, r_exec)
@@ -198,6 +201,11 @@ def _run_repl(py_exec, sh_exec, r_exec):
             continue
 
         if not user_input:
+            continue
+
+        # --- built-in: configure API key ---
+        if not llm.client and user_input.lower() in ("configure", "configure-api", "setup api", "set api key"):
+            _print_config_help()
             continue
 
         lang = state.current_language
@@ -279,6 +287,17 @@ def _run_repl(py_exec, sh_exec, r_exec):
         _log_turn(user_input, result, elapsed_ms)
         print_result(result, elapsed_ms)
         state.save()
+
+
+def _print_config_help():
+    print("Configure your API key in ~/.srun/user_config.json:")
+    print("  {")
+    print('    "api_key": "sk-...",')
+    print('    "api_base": "https://api.openai.com/v1",  // optional, defaults to DeepSeek')
+    print('    "api_model": "gpt-4o"                       // optional, defaults to deepseek-chat')
+    print("  }")
+    print("")
+    print("Or export DEEPSEEK_API_KEY in your shell for DeepSeek compatibility.")
 
 
 def _handle_ssh(command, sh_exec):
@@ -450,6 +469,9 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
 
     summary, tool_calls = llm.run(user_input)
     if tool_calls is None and summary is None:
+        if not llm.client and any(kw in user_input.lower() for kw in ("api key", "api_key", "configure", "setup api", "set up llm")):
+            _print_config_help()
+            return {"success": True, "output": "", "llm_used": False, "language": "text"}
         return {
             "success": False,
             "output": "Unable to understand this input. Try rephrasing.",

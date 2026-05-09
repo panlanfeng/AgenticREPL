@@ -8,6 +8,9 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".srun", "user_config.json")
 DEFAULTS = {
     "confirm_llm_code": False,
     "max_retry_rounds": 4,
+    "api_key": "",
+    "api_base": "",
+    "api_model": "",
 }
 
 _cache = None
@@ -55,3 +58,12 @@ def set(key, value):
     cfg = load()
     cfg[key] = value
     save(cfg)
+
+
+def get_api_config():
+    """Return (api_key, api_base, api_model) from user config, with env fallbacks."""
+    cfg = load()
+    api_key = cfg.get("api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
+    api_base = cfg.get("api_base") or os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
+    api_model = cfg.get("api_model") or os.environ.get("SRUN_MODEL", "deepseek-chat")
+    return api_key, api_base, api_model
