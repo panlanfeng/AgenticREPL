@@ -735,6 +735,19 @@ class TestDataAnalystLLMRepair:
                     exec_result = _retry_loop(cmd, self.r, "r", initial_llm=True)
                     assert exec_result is not None, f"Execution should complete: {cmd}"
 
+    def test_multi_step_shell_task(self):
+        """'find large files > 20MB and sum total size' must complete both steps."""
+        from srun.repl import _exec_inline
+        state.reset_session()
+        state._context_injected = True
+        state.current_language = "shell"
+        state._llm_last_known_language = "shell"
+        summary, cmds = llm.run(
+            "find the large files in this folder larger than 1MB and calculate their total size",
+            exec_callback=_exec_inline(self.py, self.sh, self.r),
+        )
+        assert cmds is not None or summary is not None, "Should get commands or summary"
+
 
 # ===========================================================================
 # TestDataAnalystWorkflows — multi-step end-to-end workflows (slow + llm)

@@ -56,7 +56,7 @@ class LLM:
         self._hit_tokens = 0
         self._miss_tokens = 0
 
-    def run(self, user_input, error=None):
+    def run(self, user_input, error=None, exec_callback=None):
         if not self.client:
             return None, None
 
@@ -179,7 +179,15 @@ class LLM:
                                 lang = args.get("language", "shell")
                                 if cmd:
                                     commands.append({"command": cmd, "language": lang})
-                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"queued: {cmd}"})
+                                if exec_callback and cmd:
+                                    ok, out, *_ = exec_callback(cmd, lang)
+                                    out_lines = out.strip().split("\n") if out else []
+                                    if len(out_lines) > 20:
+                                        out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
+                                    content = f"Exit: {'0' if ok else '1'}\n{out[:3000]}"
+                                else:
+                                    content = f"queued: {cmd}"
+                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                             else:
                                 label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions")
                                 val = list(args.values())[0] if args else ""

@@ -457,6 +457,16 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
     return {"success": False, "output": "max retries", "llm_used": llm_used, "language": language}
 
 
+def _exec_inline(py_exec, sh_exec, r_exec):
+    """Callback for llm.run() to execute run_command inline with output feedback."""
+    exec_map = {"shell": sh_exec, "python": py_exec, "r": r_exec}
+    def _do(cmd, lang):
+        executor = exec_map.get(lang, sh_exec)
+        ok, out, *_ = executor.execute(cmd)
+        return ok, out
+    return _do
+
+
 def execute(category, user_input, py_exec, sh_exec, r_exec):
     EXEC_MAP = {
         "shell": (sh_exec, "shell"),
@@ -480,7 +490,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop(user_input, sh_exec, "shell")
 
-    summary, tool_calls = llm.run(user_input)
+    summary, tool_calls = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec))
     if tool_calls is None and summary is None:
         if not llm.client and any(kw in user_input.lower() for kw in ("api key", "api_key", "configure", "setup api", "set up llm")):
             _print_config_help()
@@ -499,23 +509,14 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
             "language": "text",
         }
 
-    for tc in tool_calls:
-        if isinstance(tc, dict):
-            cmd = tc["command"]
-            lang = tc.get("language", state.current_language if state.current_language in EXEC_MAP else "shell")
-        else:
-            cmd = tc
-            lang = state.current_language if state.current_language in EXEC_MAP else "shell"
-        executor, lang_name = EXEC_MAP.get(lang, (sh_exec, "shell"))
-        exec_result = _retry_loop(cmd, executor, lang_name, initial_llm=True)
-        if not exec_result["success"]:
-            exec_result["summary"] = summary
-            return exec_result
-
+    # Commands were executed inline by llm.run — collect for display, don't re-execute
     first_cmd = tool_calls[0]
     gen_code = first_cmd["command"] if isinstance(first_cmd, dict) else first_cmd
-    return {"success": True, "output": exec_result.get("output", ""), "llm_used": True,
-            "language": exec_result.get("language", lang_name),
+    lang_val = "shell"
+    if isinstance(first_cmd, dict):
+        lang_val = first_cmd.get("language", "shell")
+    return {"success": True, "output": "", "llm_used": True,
+            "language": lang_val,
             "generated_code": gen_code if len(tool_calls) == 1 else None,
             "summary": summary}
 
