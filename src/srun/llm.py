@@ -71,6 +71,11 @@ class LLM:
         if state.current_language != state._llm_last_known_language:
             user_content = f"[Environment changed to: {state.current_language}]\n\n{user_content}"
             state._llm_last_known_language = state.current_language
+        cwd = os.getcwd()
+        if cwd != state._last_known_cwd:
+            state._last_known_cwd = cwd
+            files = state.workspace_context()
+            user_content = f"[CWD: {cwd}]\n{files}\n\n{user_content}"
         if error and state.session_context():
             user_content += f"\n\n{state.session_context()}"
 

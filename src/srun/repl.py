@@ -276,7 +276,12 @@ def _run_repl(py_exec, sh_exec, r_exec):
 
         start = time.perf_counter()
         category = dispatcher.classify(user_input)
-        result = execute(category, user_input, py_exec, sh_exec, r_exec)
+        try:
+            result = execute(category, user_input, py_exec, sh_exec, r_exec)
+        except Exception as e:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            result = {"success": False, "output": f"Internal error: {e}", "language": state.current_language, "llm_used": False}
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
             code = result.get("fixed_code") or result.get("generated_code") or ""
@@ -357,6 +362,13 @@ def _log_turn(user_input, result, elapsed_ms):
 
 
 def _has_stderr_errors(stderr):
+    if not stderr:
+        return False
+    lower = stderr.lower()
+    for pattern in ["error", "traceback", "command not found", "no such file", "cannot access",
+                    "permission denied", "fatal", "syntax", "unexpected", "not found", "invalid"]:
+        if pattern in lower:
+            return True
     return False
 
 

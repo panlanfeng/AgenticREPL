@@ -105,6 +105,7 @@ class SessionState:
         self._conversation = []
         self._context_injected = False
         self._llm_last_known_language = "shell"
+        self._last_known_cwd = ""
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
@@ -128,6 +129,27 @@ class SessionState:
         if error_output:
             self._conversation.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
         self._conversation.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
+        self._prune_conversation()
+
+    def _prune_conversation(self):
+        MAX_TURNS = 8
+        assistant_count = sum(1 for m in self._conversation if m.get("role") == "assistant")
+        if assistant_count <= MAX_TURNS:
+            return
+        excess = assistant_count - MAX_TURNS
+        removed = 0
+        i = 0
+        while i < len(self._conversation) and removed < excess:
+            if self._conversation[i].get("role") == "assistant":
+                removed += 1
+                del self._conversation[i]
+                if i > 0 and self._conversation[i - 1].get("role") == "user":
+                    del self._conversation[i - 1]
+                    if i - 1 > 0 and self._conversation[i - 2].get("role") == "user":
+                        del self._conversation[i - 2]
+                    i -= 1
+                i -= 1
+            i += 1
 
     def log_entry(self, **kwargs):
         self._turn += 1

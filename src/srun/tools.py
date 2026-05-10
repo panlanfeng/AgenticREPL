@@ -85,11 +85,21 @@ def read_file(path, lines=None):
 
 
 def _redact_secrets(path, content):
-    """Strip API keys from config files before sending to LLM."""
-    config_file = os.path.join(os.path.expanduser("~"), ".srun", "user_config.json")
-    if os.path.realpath(path) == os.path.realpath(config_file):
-        import re
-        content = re.sub(r'"api_key"\s*:\s*"[^"]*"', '"api_key": "***"', content)
+    """Strip API keys and credentials from files before sending to LLM."""
+    import fnmatch, re
+    resolved = os.path.realpath(path)
+    sensitive = False
+    for pattern in ["*.pem", "*id_rsa*", "*.key", ".env*", "*credentials*", "*secret*", "*.token", "*.pem"]:
+        if fnmatch.fnmatch(os.path.basename(resolved), pattern):
+            sensitive = True
+            break
+    for deny in ["/.aws/", "/.ssh/", "/.srun/user_config.json"]:
+        if deny in resolved:
+            sensitive = True
+            break
+    if sensitive:
+        content = re.sub(r'(?i)(api[_-]?key|secret|password|token|credential)s?\s*[:=]\s*["\']?[^"\'}\s,]+["\']?', r'\1=***', content)
+        content = re.sub(r'sk-[a-zA-Z0-9]{20,}', 'sk-***', content)
     return content
 
 
