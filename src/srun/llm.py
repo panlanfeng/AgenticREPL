@@ -187,6 +187,7 @@ class LLM:
                                 result = execute_tool(tc.function.name, args)
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                         state.log_conversation(messages)
+                        self._maybe_compact()
                         return text if text else None, commands if commands else None
                     msg_dict = {"role": "assistant", "content": text, "tool_calls": []}
                     for tc in tool_calls:
@@ -233,6 +234,7 @@ class LLM:
                         lang = extracted.get("language") or state.current_language
                         commands = [{"command": extracted["command"], "language": lang}]
                 state.log_conversation(messages)
+                self._maybe_compact()
                 return summary, commands if commands else None
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
@@ -255,6 +257,14 @@ class LLM:
         if usage:
             self._hit_tokens += getattr(usage, "prompt_cache_hit_tokens", 0) or 0
             self._miss_tokens += getattr(usage, "prompt_cache_miss_tokens", 0) or 0
+
+    def _maybe_compact(self):
+        """Trigger context compaction if conversation exceeds 80% of token budget."""
+        tokens = state.context_tokens()
+        limit = int(state._max_context_tokens * 0.8)
+        remaining = state._max_context_tokens - tokens
+        if tokens > limit or remaining < 30000:
+            state.compact_context(llm_module=self)
 
     def reset_cache(self):
         self._hit_tokens = 0

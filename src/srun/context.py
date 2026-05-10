@@ -166,6 +166,8 @@ class SessionState:
         self._llm_last_known_language = "shell"
         self._last_known_cwd = ""
         self._context_stale = True
+        self._stable_summary = None  # compaction summary, inserted after startup
+        self._max_context_tokens = 128000  # DeepSeek default, overridable
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -175,6 +177,7 @@ class SessionState:
 
     def reset_session(self):
         self._conversation = []
+        self._stable_summary = None
         self.session_log = []
         self._turn = 0
         self.last_dispatch_error = None
@@ -183,6 +186,8 @@ class SessionState:
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
+        if self._stable_summary:
+            messages.append({"role": "user", "content": f"[Summary of earlier conversation]\n{self._stable_summary}"})
         for entry in self._conversation:
             messages.append(entry)
         return messages
@@ -192,38 +197,71 @@ class SessionState:
         if error_output:
             new_msgs.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
         new_msgs.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
-        # Deduplicate: skip if last entries already match
         tail = self._conversation[-len(new_msgs):] if len(self._conversation) >= len(new_msgs) else []
         if tail != new_msgs:
             self._conversation.extend(new_msgs)
-        self._prune_conversation()
 
-    def _prune_conversation(self):
-        MAX_TURNS = 8
-        assistant_count = sum(1 for m in self._conversation if m.get("role") == "assistant")
-        if assistant_count <= MAX_TURNS:
-            return
-        excess = assistant_count - MAX_TURNS
-        removed = 0
-        i = 0
-        while i < len(self._conversation) and removed < excess:
-            if self._conversation[i].get("role") == "assistant":
-                removed += 1
-                del self._conversation[i]
-                if i > 0 and self._conversation[i - 1].get("role") == "user":
-                    del self._conversation[i - 1]
-                    if i - 1 > 0 and self._conversation[i - 2].get("role") == "user":
-                        del self._conversation[i - 2]
-                    i -= 1
-                i -= 1
-            i += 1
+    def _approx_tokens(self, text):
+        """Rough token count: ~3.5 chars per token for English + code."""
+        return max(1, len(text) // 3)
+
+    def _context_tokens(self, messages):
+        """Estimate total tokens in a message list."""
+        total = 0
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                total += self._approx_tokens(content)
+        return total
+
+    def compact_context(self, llm_module=None):
+        """If conversation exceeds 80% of max tokens, generate a stable summary
+        via a subagent call with identical context (maximizes cache hit rate).
+        Removes old turns and inserts the summary after startup context."""
+        from .prompts import PROMPT
+        msgs = self.build_conversation_messages(PROMPT.format())
+        tokens = self._context_tokens(msgs)
+        limit = int(self._max_context_tokens * 0.8)
+        remaining = self._max_context_tokens - tokens
+
+        if tokens < limit and remaining > 30000:
+            return False
+
+        if not llm_module:
+            return False
+
+        summary_prompt = (
+            "Summarize the conversation so far into a concise context block. "
+            "Include: what the user has been working on, key files and variables, "
+            "languages used, important commands and their results, and any errors encountered. "
+            "Keep it under 500 words."
+        )
+        summary_msgs = msgs + [{"role": "user", "content": summary_prompt}]
+        try:
+            kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
+                      "temperature": 0.0, "max_tokens": 800, "stream": False}
+            resp = llm_module.client.chat.completions.create(**kwargs)
+            summary = resp.choices[0].message.content.strip()
+            if llm_module._track_usage:
+                llm_module._track_usage(resp.usage)
+        except Exception:
+            return False
+
+        # Keep last 5 turns for recency, replace older ones with summary
+        assistant_indices = [i for i, m in enumerate(self._conversation) if m.get("role") == "assistant"]
+        if len(assistant_indices) <= 6:
+            return False
+        cutoff = assistant_indices[-6]
+        self._stable_summary = summary
+        self._conversation = self._conversation[cutoff:]
+        return True
 
     def log_entry(self, **kwargs):
         self._turn += 1
         entry = {"turn": self._turn, "cwd": os.getcwd(), **kwargs}
         self.session_log.append(entry)
-        if len(self.session_log) > 50:
-            self.session_log = self.session_log[-50:]
+        if len(self.session_log) > 200:
+            self.session_log = self.session_log[-200:]
         self._write_history(entry)
 
     def _write_history(self, entry):
@@ -324,6 +362,12 @@ class SessionState:
             return
         self._current_language = value
 
+    def context_tokens(self):
+        """Estimate total tokens in the current conversation + system prompt."""
+        from .prompts import PROMPT
+        msgs = self.build_conversation_messages(PROMPT.format())
+        return self._context_tokens(msgs)
+
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
             return
@@ -397,7 +441,7 @@ class SessionState:
         if not self.session_log:
             return ""
         entries = []
-        for e in self.session_log[-15:]:
+        for e in self.session_log[-30:]:
             line = self._format_log_line(e)
             if line:
                 entries.append(line)
