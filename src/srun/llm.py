@@ -265,6 +265,10 @@ class LLM:
         remaining = state._max_context_tokens - tokens
         if tokens > limit or remaining < 30000:
             state.compact_context(llm_module=self)
+        # Extract memory every 50K tokens of growth since last extraction
+        since_last = tokens - state._last_memory_extract_tokens
+        if since_last > 50000:
+            state.extract_memory(llm_module=self)
 
     def reset_cache(self):
         self._hit_tokens = 0

@@ -168,6 +168,8 @@ class SessionState:
         self._context_stale = True
         self._stable_summary = None  # compaction summary, inserted after startup
         self._max_context_tokens = 128000  # DeepSeek default, overridable
+        self._last_memory_extract_tokens = 0  # token count at last MEMORY.md write
+        self._memory_file = os.path.join(SESSION_DIR, "MEMORY.md")
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -188,6 +190,11 @@ class SessionState:
         messages = [{"role": "system", "content": system_prompt}]
         if self._stable_summary:
             messages.append({"role": "user", "content": f"[Summary of earlier conversation]\n{self._stable_summary}"})
+        if os.path.isfile(self._memory_file):
+            with open(self._memory_file) as f:
+                mem = f.read()
+            if mem.strip():
+                messages.append({"role": "user", "content": f"[Persistent memory — use this to personalize responses]\n{mem}"})
         for entry in self._conversation:
             messages.append(entry)
         return messages
@@ -368,6 +375,62 @@ class SessionState:
         msgs = self.build_conversation_messages(PROMPT.format())
         return self._context_tokens(msgs)
 
+    def extract_memory(self, llm_module=None):
+        """Use a subagent sharing the SAME context (maximizing cache hit rate)
+        to extract persistent memory from the conversation into MEMORY.md.
+        Only extracts: user profile, feedback/corrections, project context, and
+        pointers to important files. Never extracts discoverable info."""
+        if not llm_module or not llm_module.client:
+            return
+        from .prompts import PROMPT
+
+        existing = ""
+        if os.path.isfile(self._memory_file):
+            with open(self._memory_file) as f:
+                existing = f.read()
+
+        msgs = self.build_conversation_messages(PROMPT.format())
+        memory_prompt = (
+            "Extract information for a persistent memory file. Write in Markdown with these sections:\n\n"
+            "## User Profile\n"
+            "- Knowledge level, job role, preferred collaboration style\n"
+            "- How they like to receive information (concise? detailed? examples first?)\n\n"
+            "## Feedback & Corrections\n"
+            "- When the user corrected you, what was the mistake and the fix\n"
+            "- WHY the fix is correct — the underlying principle, not the syntax\n"
+            "- How to apply this correction in similar situations next time\n\n"
+            "## Project Context\n"
+            "- Current project topic, purpose, and goals\n"
+            "- Deadlines or constraints mentioned\n"
+            "- Key decisions the user made and WHY they made them\n"
+            "- Dependencies or external systems mentioned\n\n"
+            "## Important Files\n"
+            "- Only describe what each file CONTAINS and its ROLE, never its path or name\n"
+            "- E.g., 'The main CSV has 3 columns: region, product, revenue' not 'path/to/sales.csv'\n\n"
+            "RULES:\n"
+            "- NEVER include file paths, coding style, git history, or anything in AGENTS.md\n"
+            "- NEVER repeat information that can be found by searching the repo\n"
+            "- Focus on WHY (intent, reasoning) not WHAT (commands, syntax)\n"
+            "- If existing memory exists, MERGE new info — don't duplicate, don't remove correct info\n"
+            "- Keep under 800 words total\n\n"
+        )
+        if existing:
+            memory_prompt += f"Existing MEMORY.md content to merge with:\n```markdown\n{existing[:2000]}\n```\n\n"
+
+        summary_msgs = msgs + [{"role": "user", "content": memory_prompt}]
+        try:
+            kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
+                      "temperature": 0.0, "max_tokens": 1200, "stream": False}
+            resp = llm_module.client.chat.completions.create(**kwargs)
+            memory = resp.choices[0].message.content.strip()
+            if llm_module._track_usage:
+                llm_module._track_usage(resp.usage)
+            with open(self._memory_file, "w") as f:
+                f.write(memory)
+            self._last_memory_extract_tokens = self.context_tokens()
+        except Exception:
+            pass
+
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
             return
@@ -421,9 +484,12 @@ class SessionState:
         if not config.has_llm:
             api_note = ("\nAPI: No API key configured. To use natural language and repair, set api_key in ~/.srun/user_config.json "
                         "(or export DEEPSEEK_API_KEY). Tell the user to type 'srun configure-api' or update the config file manually.")
-        history_note = f"\nHistory file: {self.full_history_path} (JSONL: all turns + LLM conversations + outputs >20 lines → {self.outputs_dir})"
-        state_note = f"\nState file: {self.state_path} (session metadata)"
-        return f"{sys_info}\n{ws_info}{api_note}{history_note}{state_note}"
+        history_note = f"\nHistory: {self.full_history_path} (all turns + LLM conversations)"
+        state_note = f"\nState: {self.state_path} (session metadata)"
+        mem_note = ""
+        if os.path.isfile(self._memory_file):
+            mem_note = f"\nMemory: {self._memory_file} (persistent user profile, feedback, project context)"
+        return f"{sys_info}\n{ws_info}{api_note}{history_note}{state_note}{mem_note}"
 
     def workspace_context(self):
         info = get_system_info()
