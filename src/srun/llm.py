@@ -78,6 +78,10 @@ class LLM:
             user_content = f"[CWD: {cwd}]\n{files}\n\n{user_content}"
         if error and state.session_context():
             user_content += f"\n\n{state.session_context()}"
+        elif not error:
+            session_ctx = state.session_context()
+            if session_ctx:
+                user_content += f"\n\n[Recent activity]\n{session_ctx}"
 
         messages.append({"role": "user", "content": user_content})
 
@@ -173,6 +177,14 @@ class LLM:
                         print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
                         result = execute_tool(tc.function.name, args)
                         messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                    state._conversation.append(msg_dict)
+                    for tc in tool_calls:
+                        try:
+                            args = json.loads(tc.function.arguments)
+                        except json.JSONDecodeError:
+                            continue
+                        result = execute_tool(tc.function.name, args)
+                        state._conversation.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 
                 summary = text if text else None
@@ -202,12 +214,16 @@ class LLM:
                 self._save_conversation(messages)
                 return None, None
             except Exception as e:
+                err_msg = str(e).lower()
+                if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
+                    time.sleep(1.5)
+                    continue
                 state.last_dispatch_error = str(e)
                 self._save_conversation(messages)
                 return None, None
 
         self._save_conversation(messages)
-        return None, None
+        return "Tool call limit reached; try a simpler request.", None
 
     def _track_usage(self, usage):
         if usage:
