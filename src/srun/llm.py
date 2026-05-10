@@ -12,22 +12,40 @@ from .tools import TOOL_DEFINITIONS, execute_tool
 
 
 def _extract_command_from_text(text):
+    """Extract command and language from JSON embedded in LLM text output using brace balancing."""
     if not text:
         return None
-    for cmd_key in ("command", "code"):
-        pattern = r'\{\s*"' + cmd_key + r'"\s*:\s*"((?:[^"\\]|\\.)*)"'
-        m = re.search(pattern, text)
-        if m:
-            raw = m.group(1)
-            try:
-                cmd = json.loads('"' + raw + '"')
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                cmd = raw
-            lang = None
-            lang_m = re.search(r'"language"\s*:\s*"(\w+)"', text)
-            if lang_m:
-                lang = lang_m.group(1)
-            return {"command": cmd, "language": lang}
+    for match in re.finditer(r'\{', text):
+        depth = 0
+        start = match.start()
+        i = start
+        in_string = False
+        escape_next = False
+        while i < len(text):
+            c = text[i]
+            if escape_next:
+                escape_next = False
+            elif c == '\\' and in_string:
+                escape_next = True
+            elif c == '"' and not escape_next:
+                in_string = not in_string
+            elif not in_string:
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        json_str = text[start:i+1]
+                        try:
+                            obj = json.loads(json_str)
+                            if "command" in obj or "code" in obj:
+                                cmd = obj.get("command") or obj.get("code")
+                                lang = obj.get("language")
+                                return {"command": cmd, "language": lang}
+                        except json.JSONDecodeError:
+                            pass
+                        break
+            i += 1
     return None
 
 
@@ -69,7 +87,13 @@ class LLM:
 
         user_content = failure_text
         if state.current_language != state._llm_last_known_language:
-            user_content = f"[Environment changed to: {state.current_language}]\n\n{user_content}"
+            change_msg = f"[Environment changed to: {state.current_language}"
+            if state.current_language != "shell":
+                change_msg += " — user entered session"
+            else:
+                change_msg += " — returned to shell"
+            change_msg += "]"
+            user_content = f"{change_msg}\n\n{user_content}"
             state._llm_last_known_language = state.current_language
         cwd = os.getcwd()
         if cwd != state._last_known_cwd:
@@ -237,7 +261,7 @@ class LLM:
         clean = []
         for m in messages:
             if isinstance(m, dict):
-                clean.append({k: v for k, v in m.items() if k != "tool_call_id"})
+                clean.append({k: v for k, v in m.items()})
         with open(path, "w") as f:
             json.dump(clean, f, indent=2, default=str)
 

@@ -13,6 +13,14 @@ DEFAULTS = {
     "api_model": "",
 }
 
+TYPES = {
+    "confirm_llm_code": bool,
+    "max_retry_rounds": int,
+    "api_key": str,
+    "api_base": str,
+    "api_model": str,
+}
+
 _cache = None
 _cache_mtime = 0
 
@@ -30,7 +38,10 @@ def load():
         try:
             with open(CONFIG_FILE) as f:
                 loaded = json.load(f)
-                cfg.update(loaded)
+                for k, v in loaded.items():
+                    if k in TYPES and not isinstance(v, TYPES[k]):
+                        v = DEFAULTS.get(k, v)
+                    cfg[k] = v
         except (json.JSONDecodeError, IOError):
             pass
     _cache = dict(cfg)

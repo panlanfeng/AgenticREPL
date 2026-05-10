@@ -26,7 +26,7 @@ NL_KEYWORDS = [
 ]
 
 SHELL_PATTERNS = [
-    r"\|", r">>", r">(?![=])", r"<(?!=)", r"&&", r"\|\|", r";",
+    r"\|", r">>", r">(?![=])", r"<\s", r"&&", r"\|\|", r";",
     r"\$\(", r"`[^`]+`", r"\\\n",
 ]
 
@@ -78,10 +78,10 @@ class Dispatcher:
             return "empty"
         if _looks_like_pseudocode(stripped):
             return "unknown"
-        if self._is_python(stripped):
-            return "python"
         if self._is_shell(stripped):
             return "shell"
+        if self._is_python(stripped):
+            return "python"
         return "unknown"
 
     def _is_python(self, code):

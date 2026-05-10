@@ -27,6 +27,8 @@ CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
 
 
 def get_system_info():
+    import sys as _sys
+    from datetime import datetime as _datetime
     os_name = platform.system().lower()
     info = {
         "os": os_name,
@@ -35,6 +37,9 @@ def get_system_info():
         "shell": os.environ.get("SHELL", "").split("/")[-1],
         "cwd": os.getcwd(),
         "platform": os_name,
+        "python_version": _sys.version.split()[0],
+        "now": _datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "r_available": shutil.which("R") is not None,
     }
     if os_name == "darwin":
         try:
@@ -46,6 +51,17 @@ def get_system_info():
     elif os_name == "linux":
         info["platform"] = "Linux"
         info["tools_note"] = "Linux uses GNU grep/sed/awk"
+    venv = os.environ.get("VIRTUAL_ENV", "") or os.environ.get("CONDA_DEFAULT_ENV", "")
+    if venv:
+        info["virtualenv"] = venv
+    r_path = shutil.which("R")
+    if r_path:
+        try:
+            r = subprocess.run([r_path, "--version"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                info["r_version"] = r.stdout.split("\n")[0].strip()
+        except Exception:
+            pass
     return info
 
 
@@ -96,7 +112,7 @@ class SessionState:
         self.vars = {}
         self.active_df = None
         self.last_lang = "shell"
-        self.current_language = "shell"
+        self._current_language = "shell"
         self.history = []
         self.last_dispatch_error = None
         self.code_cache = {}
@@ -116,7 +132,7 @@ class SessionState:
         self._turn = 0
         self.last_dispatch_error = None
         self._context_injected = False
-        self._llm_last_known_language = self.current_language
+        self._llm_last_known_language = self._current_language
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
@@ -125,10 +141,14 @@ class SessionState:
         return messages
 
     def add_conversation_turn(self, user_msg, assistant_code, error_output=None):
-        self._conversation.append({"role": "user", "content": user_msg})
+        new_msgs = [{"role": "user", "content": user_msg}]
         if error_output:
-            self._conversation.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
-        self._conversation.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
+            new_msgs.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
+        new_msgs.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
+        # Deduplicate: skip if last entries already match
+        tail = self._conversation[-len(new_msgs):] if len(self._conversation) >= len(new_msgs) else []
+        if tail != new_msgs:
+            self._conversation.extend(new_msgs)
         self._prune_conversation()
 
     def _prune_conversation(self):
@@ -188,7 +208,19 @@ class SessionState:
             return schema["columns"]
         return []
 
+    @property
+    def current_language(self):
+        return self._current_language
+
+    @current_language.setter
+    def current_language(self, value):
+        if value not in ("shell", "python", "r"):
+            return
+        self._current_language = value
+
     def save(self):
+        if not os.environ.get("SRUN_DEBUG"):
+            return
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
         state_data = {
@@ -214,8 +246,19 @@ class SessionState:
         ]
         if info.get("tools_note"):
             lines.append(f"Note: {info['tools_note']}")
+        if info.get("python_version"):
+            lines.append(f"Python: {info['python_version']}")
+        if info.get("virtualenv"):
+            lines.append(f"Virtualenv: {info['virtualenv']}")
+        if info.get("r_version"):
+            lines.append(f"R: {info['r_version']}")
+        if info.get("now"):
+            lines.append(f"Date: {info['now']}")
         lines.append(f"Current environment: {self.current_language}")
-        lines.append(f"Available sessions: shell, python, r (use 'language' field in run_command to target one)")
+        sessions = "shell, python"
+        if info.get("r_available"):
+            sessions += ", r"
+        lines.append(f"Available sessions: {sessions} (use 'language' field in run_command to target one)")
         return "\n".join(lines)
 
     def startup_context(self):

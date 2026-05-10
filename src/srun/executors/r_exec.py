@@ -1,8 +1,7 @@
 import subprocess
 import shutil
 import os
-import threading
-import queue
+import time
 
 
 class RExecutor:
@@ -20,9 +19,10 @@ class RExecutor:
             self._process = subprocess.Popen(
                 ["R", "--slave", "--no-save", "--no-restore"],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True,
+                stderr=subprocess.STDOUT, text=True, bufsize=1,
                 cwd=os.getcwd(),
             )
+            os.set_blocking(self._process.stdout.fileno(), False)
 
     def execute(self, code):
         if not self.available:
@@ -35,47 +35,42 @@ class RExecutor:
             self._process.stdin.flush()
 
             output_lines = []
-            result_queue = queue.Queue()
+            deadline = time.monotonic() + self._read_timeout
 
-            def _reader():
+            while time.monotonic() < deadline:
                 try:
-                    for line in self._process.stdout:
-                        if "__SRUN_END__" in line:
-                            result_queue.put(("ok", output_lines))
-                            return
-                        stripped = line.rstrip("\n")
-                        if stripped and not stripped.startswith("> ") and not stripped.startswith("+ "):
-                            output_lines.append(stripped)
-                    result_queue.put(("eof", output_lines))
-                except Exception as e:
-                    result_queue.put(("error", str(e)))
-
-            thread = threading.Thread(target=_reader, daemon=True)
-            thread.start()
-            thread.join(timeout=self._read_timeout)
-
-            if thread.is_alive():
-                try:
-                    self._process.kill()
+                    line = self._process.stdout.readline()
                 except Exception:
-                    pass
-                self._process = None
-                return False, "R command timed out", ""
+                    time.sleep(0.1)
+                    self._process.poll()
+                    if self._process.returncode is not None:
+                        break
+                    continue
+                if not line:
+                    time.sleep(0.05)
+                    self._process.poll()
+                    if self._process.returncode is not None:
+                        break
+                    continue
+                if "__SRUN_END__" in line:
+                    out = "\n".join(output_lines)
+                    self._process.poll()
+                    rc = self._process.returncode
+                    ok = rc is None or rc == 0
+                    if not ok:
+                        self._process = None
+                    return ok, out, out
+                stripped = line.rstrip("\n")
+                if stripped and not stripped.startswith("> ") and not stripped.startswith("+ "):
+                    output_lines.append(stripped)
 
-            if result_queue.empty():
-                return False, "R read error", ""
-
-            status, result = result_queue.get()
-            if status == "error":
-                return False, f"R read error: {result}", ""
-
-            out = "\n".join(result)
-            self._process.poll()
-            rc = self._process.returncode
-            ok = rc is None or rc == 0
-            if not ok:
-                self._process = None
-            return ok, out, out
+            try:
+                self._process.kill()
+                self._process.wait(timeout=2)
+            except Exception:
+                pass
+            self._process = None
+            return False, "R command timed out", ""
         except Exception as e:
             if self._process:
                 try:
