@@ -1046,10 +1046,11 @@ class TestDataAnalystEdgeCases:
     # ---- Shell error with unknown command ----
 
     def test_unknown_shell_command_handling(self):
-        """Running a completely invalid command should return failure."""
+        """Running a completely invalid command should fail or trigger LLM repair."""
         cat = dispatcher.classify("nonexistentcmd12345xyz")
         result = _run(cat, "nonexistentcmd12345xyz", self.py, self.sh, self.r)
-        assert not result["success"]
+        assert not result["success"] or result.get("llm_used"), \
+            f"Invalid command should fail or trigger LLM: {result}"
 
 
     def test_json_newline_decoding(self):

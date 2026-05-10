@@ -358,6 +358,7 @@ def _log_turn(user_input, result, elapsed_ms):
         success=success,
         elapsed_ms=int(elapsed_ms),
         error="\n".join(repair_errors) if repair_errors else None,
+        output=result.get("output", ""),
     )
 
 

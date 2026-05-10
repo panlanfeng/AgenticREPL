@@ -24,6 +24,8 @@ SESSION_DIR = _session_dir()
 SESSION_ID = os.path.basename(SESSION_DIR)
 STATE_FILE = os.path.join(SESSION_DIR, "state.json")
 CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
+FULL_HISTORY_FILE = os.path.join(SESSION_DIR, "full_history.jsonl")
+OUTPUTS_DIR = os.path.join(SESSION_DIR, "outputs")
 
 
 def _detect_python_versions():
@@ -156,9 +158,7 @@ class SessionState:
         self.active_df = None
         self.last_lang = "shell"
         self._current_language = "shell"
-        self.history = []
         self.last_dispatch_error = None
-        self.code_cache = {}
         self.session_log = []
         self._turn = 0
         self._conversation = []
@@ -169,6 +169,9 @@ class SessionState:
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+        os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        self.full_history_path = FULL_HISTORY_FILE
+        self.outputs_dir = OUTPUTS_DIR
 
     def reset_session(self):
         self._conversation = []
@@ -221,6 +224,49 @@ class SessionState:
         self.session_log.append(entry)
         if len(self.session_log) > 50:
             self.session_log = self.session_log[-50:]
+        self._write_history(entry)
+
+    def _write_history(self, entry):
+        """Write a structured history entry to full_history.jsonl.
+        Outputs > 20 lines are stored in separate files and linked."""
+        import datetime as _datetime
+        output = entry.get("output", "") or ""
+        error = entry.get("error", "") or ""
+        output_lines = output.split("\n") if output else []
+        error_lines = error.split("\n") if error else []
+
+        record = {
+            "turn": self._turn,
+            "timestamp": _datetime.datetime.now().isoformat(),
+            "language": entry.get("language", ""),
+            "input": entry.get("input", "")[:200],
+            "code_executed": entry.get("code", "")[:500],
+            "llm_used": bool(entry.get("llm_generated")),
+            "success": entry.get("success", False),
+            "elapsed_ms": entry.get("elapsed_ms", 0),
+            "type": entry.get("type", "?"),
+            "output": None,
+            "output_file": None,
+            "error_file": None,
+        }
+
+        if len(output_lines) > 20:
+            out_path = os.path.join(OUTPUTS_DIR, f"turn_{self._turn}_out.txt")
+            with open(out_path, "w") as f:
+                f.write(output)
+            record["output"] = "\n".join(output_lines[:3]) + f"\n... ({len(output_lines)} lines total, see output_file)"
+            record["output_file"] = os.path.relpath(out_path, SESSION_DIR)
+        elif output:
+            record["output"] = output[:2000]
+
+        if len(error_lines) > 20:
+            err_path = os.path.join(OUTPUTS_DIR, f"turn_{self._turn}_err.txt")
+            with open(err_path, "w") as f:
+                f.write(error)
+            record["error_file"] = os.path.relpath(err_path, SESSION_DIR)
+
+        with open(FULL_HISTORY_FILE, "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _tail_lines(self, text, n=10):
         if not text:
@@ -276,7 +322,6 @@ class SessionState:
                 "active_df": self.active_df,
                 "last_lang": self.last_lang,
                 "current_language": self.current_language,
-                "history": self.history[-10:],
                 "log": self.session_log[-20:],
             },
         }
@@ -317,7 +362,8 @@ class SessionState:
         if not config.has_llm:
             api_note = ("\nAPI: No API key configured. To use natural language and repair, set api_key in ~/.srun/user_config.json "
                         "(or export DEEPSEEK_API_KEY). Tell the user to type 'srun configure-api' or update the config file manually.")
-        return f"{sys_info}\n{ws_info}{api_note}"
+        history_note = f"\nFull history: {self.full_history_path} (one JSONL line per turn, outputs >20 lines stored in {self.outputs_dir})"
+        return f"{sys_info}\n{ws_info}{api_note}{history_note}"
 
     def workspace_context(self):
         info = get_system_info()
