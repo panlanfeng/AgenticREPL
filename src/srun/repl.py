@@ -53,7 +53,7 @@ from .logo import LOGO
 from .llm import llm
 from .repair import repairer
 from .danger import check_danger
-from .config import init as config_init
+from .config import config, init as config_init
 from .executors.python_exec import PythonExecutor
 from .executors.shell_exec import ShellExecutor
 from .executors.r_exec import RExecutor
