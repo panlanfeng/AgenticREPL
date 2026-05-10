@@ -3,10 +3,9 @@ import os
 import re
 import time
 import types
-from datetime import datetime
 from openai import OpenAI
 from .config import config
-from .context import state, CONVERSATIONS_DIR
+from .context import state
 from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
 
@@ -187,7 +186,7 @@ class LLM:
                                 print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
                                 result = execute_tool(tc.function.name, args)
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-                        self._save_conversation(messages)
+                        state.log_conversation(messages)
                         return text if text else None, commands if commands else None
                     msg_dict = {"role": "assistant", "content": text, "tool_calls": []}
                     for tc in tool_calls:
@@ -233,12 +232,12 @@ class LLM:
                     if extracted:
                         lang = extracted.get("language") or state.current_language
                         commands = [{"command": extracted["command"], "language": lang}]
-                self._save_conversation(messages)
+                state.log_conversation(messages)
                 return summary, commands if commands else None
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
-                self._save_conversation(messages)
+                state.log_conversation(messages)
                 return None, None
             except Exception as e:
                 err_msg = str(e).lower()
@@ -246,27 +245,16 @@ class LLM:
                     time.sleep(1.5)
                     continue
                 state.last_dispatch_error = str(e)
-                self._save_conversation(messages)
+                state.log_conversation(messages)
                 return None, None
 
-        self._save_conversation(messages)
+        state.log_conversation(messages)
         return "Tool call limit reached; try a simpler request.", None
 
     def _track_usage(self, usage):
         if usage:
             self._hit_tokens += getattr(usage, "prompt_cache_hit_tokens", 0) or 0
             self._miss_tokens += getattr(usage, "prompt_cache_miss_tokens", 0) or 0
-
-    def _save_conversation(self, messages):
-        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(CONVERSATIONS_DIR, f"conv_{ts}.json")
-        clean = []
-        for m in messages:
-            if isinstance(m, dict):
-                clean.append({k: v for k, v in m.items()})
-        with open(path, "w") as f:
-            json.dump(clean, f, indent=2, default=str)
 
     def reset_cache(self):
         self._hit_tokens = 0

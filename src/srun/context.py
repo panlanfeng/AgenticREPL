@@ -23,7 +23,7 @@ def _session_dir():
 SESSION_DIR = _session_dir()
 SESSION_ID = os.path.basename(SESSION_DIR)
 STATE_FILE = os.path.join(SESSION_DIR, "state.json")
-CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
+CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")  # deprecated — use full_history.jsonl
 FULL_HISTORY_FILE = os.path.join(SESSION_DIR, "full_history.jsonl")
 OUTPUTS_DIR = os.path.join(SESSION_DIR, "outputs")
 
@@ -168,10 +168,10 @@ class SessionState:
         self._context_stale = True
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
-        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
         self.full_history_path = FULL_HISTORY_FILE
         self.outputs_dir = OUTPUTS_DIR
+        self.state_path = STATE_FILE
 
     def reset_session(self):
         self._conversation = []
@@ -268,6 +268,22 @@ class SessionState:
         with open(FULL_HISTORY_FILE, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+    def log_conversation(self, messages):
+        """Write raw LLM conversation messages to the unified history file."""
+        import datetime as _datetime
+        clean = []
+        for m in messages:
+            if isinstance(m, dict):
+                clean.append({k: v for k, v in m.items()})
+        record = {
+            "type": "llm_conversation",
+            "turn": self._turn,
+            "timestamp": _datetime.datetime.now().isoformat(),
+            "messages": clean,
+        }
+        with open(FULL_HISTORY_FILE, "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
     def _tail_lines(self, text, n=10):
         if not text:
             return ""
@@ -312,7 +328,6 @@ class SessionState:
         if not os.environ.get("SRUN_DEBUG"):
             return
         os.makedirs(SESSION_DIR, exist_ok=True)
-        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
         state_data = {
             "session_id": SESSION_ID,
             "system": get_system_info(),
@@ -362,8 +377,9 @@ class SessionState:
         if not config.has_llm:
             api_note = ("\nAPI: No API key configured. To use natural language and repair, set api_key in ~/.srun/user_config.json "
                         "(or export DEEPSEEK_API_KEY). Tell the user to type 'srun configure-api' or update the config file manually.")
-        history_note = f"\nFull history: {self.full_history_path} (one JSONL line per turn, outputs >20 lines stored in {self.outputs_dir})"
-        return f"{sys_info}\n{ws_info}{api_note}{history_note}"
+        history_note = f"\nHistory file: {self.full_history_path} (JSONL: all turns + LLM conversations + outputs >20 lines → {self.outputs_dir})"
+        state_note = f"\nState file: {self.state_path} (session metadata)"
+        return f"{sys_info}\n{ws_info}{api_note}{history_note}{state_note}"
 
     def workspace_context(self):
         info = get_system_info()
