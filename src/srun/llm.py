@@ -98,8 +98,11 @@ class LLM:
         cwd = os.getcwd()
         if cwd != state._last_known_cwd:
             state._last_known_cwd = cwd
-            files = state.workspace_context()
-            user_content = f"[CWD: {cwd}]\n{files}\n\n{user_content}"
+            state._context_stale = True
+        if state._context_stale:
+            state._context_stale = False
+            reminder = state.llm_context() + "\n" + state.workspace_context()
+            user_content = f"<system_reminder>\n{reminder}\n</system_reminder>\n\n{user_content}"
         if error and state.session_context():
             user_content += f"\n\n{state.session_context()}"
         elif not error:
@@ -179,7 +182,7 @@ class LLM:
                                     commands.append({"command": cmd, "language": lang})
                                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": f"queued: {cmd}"})
                             else:
-                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
+                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions")
                                 val = list(args.values())[0] if args else ""
                                 print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
                                 result = execute_tool(tc.function.name, args)

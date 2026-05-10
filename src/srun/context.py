@@ -26,6 +26,40 @@ STATE_FILE = os.path.join(SESSION_DIR, "state.json")
 CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")
 
 
+def _detect_python_versions():
+    """Find all Python versions available in PATH."""
+    versions = []
+    seen = set()
+    for name in ["python", "python3", "python3.9", "python3.10", "python3.11", "python3.12", "python3.13"]:
+        p = shutil.which(name)
+        if p and p not in seen:
+            seen.add(p)
+            try:
+                r = subprocess.run([p, "--version"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    versions.append(f"{name}: {r.stdout.strip()}")
+            except Exception:
+                versions.append(f"{name}: {p}")
+    return versions
+
+
+def _detect_gnu_alternatives():
+    """Check for GNU alternatives on macOS/BSD."""
+    alts = {}
+    for cmd, gnu in [("grep", "ggrep"), ("sed", "gsed"), ("awk", "gawk"),
+                     ("find", "gfind"), ("ls", "gls"), ("make", "gmake"),
+                     ("tar", "gtar")]:
+        gnu_path = shutil.which(gnu)
+        if gnu_path:
+            try:
+                r = subprocess.run([gnu_path, "--version"], capture_output=True, text=True, timeout=5)
+                ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else gnu_path
+                alts[cmd] = f"{gnu}: {ver}"
+            except Exception:
+                alts[cmd] = f"{gnu}: {gnu_path}"
+    return alts
+
+
 def get_system_info():
     import sys as _sys
     from datetime import datetime as _datetime
@@ -47,10 +81,19 @@ def get_system_info():
             info["platform"] = f"macOS {ver}"
         except Exception:
             info["platform"] = "macOS"
-        info["tools_note"] = "macOS uses BSD grep/sed/awk, not GNU"
+    if os_name == "darwin":
+        gnu_alts = _detect_gnu_alternatives()
+        if gnu_alts:
+            info["gnu_alternatives"] = gnu_alts
+            info["tools_note"] = "macOS uses BSD grep/sed/awk by default. GNU alternatives available — use the GNU command names listed below for GNU-compatible flags."
+        else:
+            info["tools_note"] = "macOS uses BSD grep/sed/awk, not GNU. Install coreutils for GNU versions."
     elif os_name == "linux":
         info["platform"] = "Linux"
         info["tools_note"] = "Linux uses GNU grep/sed/awk"
+    python_versions = _detect_python_versions()
+    if python_versions:
+        info["python_versions"] = python_versions
     venv = os.environ.get("VIRTUAL_ENV", "") or os.environ.get("CONDA_DEFAULT_ENV", "")
     if venv:
         info["virtualenv"] = venv
@@ -122,6 +165,7 @@ class SessionState:
         self._context_injected = False
         self._llm_last_known_language = "shell"
         self._last_known_cwd = ""
+        self._context_stale = True
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
@@ -246,12 +290,16 @@ class SessionState:
         ]
         if info.get("tools_note"):
             lines.append(f"Note: {info['tools_note']}")
-        if info.get("python_version"):
-            lines.append(f"Python: {info['python_version']}")
-        if info.get("virtualenv"):
-            lines.append(f"Virtualenv: {info['virtualenv']}")
+        if info.get("gnu_alternatives"):
+            for cmd, alt in sorted(info["gnu_alternatives"].items()):
+                lines.append(f"  GNU {cmd}: {alt}")
+        if info.get("python_versions"):
+            py_list = "; ".join(info["python_versions"][:4])
+            lines.append(f"Python versions: {py_list}")
         if info.get("r_version"):
             lines.append(f"R: {info['r_version']}")
+        if info.get("virtualenv"):
+            lines.append(f"Virtualenv: {info['virtualenv']}")
         if info.get("now"):
             lines.append(f"Date: {info['now']}")
         lines.append(f"Current environment: {self.current_language}")

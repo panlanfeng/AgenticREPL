@@ -186,6 +186,69 @@ def get_env_info():
     return "\n".join(info)
 
 
+def check_repo_info():
+    """Check current git repository information: branch, remote, status, recent commits."""
+    cwd = os.getcwd()
+    lines = [f"Repository: {cwd}"]
+    try:
+        r = subprocess.run("git rev-parse --git-dir 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd)
+        if r.returncode != 0:
+            return "Not a git repository"
+        branch = subprocess.run("git rev-parse --abbrev-ref HEAD 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd).stdout.strip()
+        lines.append(f"Branch: {branch}")
+        sha = subprocess.run("git rev-parse --short HEAD 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd).stdout.strip()
+        if sha:
+            lines.append(f"HEAD: {sha}")
+        remote = subprocess.run("git remote get-url origin 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd).stdout.strip()
+        if remote:
+            lines.append(f"Remote: {remote}")
+        status = subprocess.run("git status --porcelain 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd).stdout.strip()
+        if status:
+            changed = len(status.split("\n"))
+            lines.append(f"Status: {changed} file(s) modified")
+        else:
+            lines.append("Status: clean")
+        log = subprocess.run("git log --oneline -5 2>/dev/null", shell=True, capture_output=True, text=True, timeout=3, cwd=cwd).stdout.strip()
+        if log:
+            lines.append(f"Recent commits:\n{log}")
+    except Exception as e:
+        return f"Error checking repo: {e}"
+    return "\n".join(lines)
+
+
+def check_command_versions(command):
+    """Find all installed versions of a command in PATH (e.g., python, R, node)."""
+    import glob as _glob
+    cmd = command.strip().split()[0]
+    versions = []
+    seen = set()
+    paths = os.environ.get("PATH", "").split(":")
+    for p in paths:
+        for pattern in [cmd, f"{cmd}3", f"{cmd}3.*"]:
+            for match in _glob.glob(os.path.join(p, pattern)):
+                name = os.path.basename(match)
+                if name.startswith(cmd) and match not in seen:
+                    seen.add(match)
+                    try:
+                        r = subprocess.run([match, "--version"], capture_output=True, text=True, timeout=5)
+                        ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else f"exit {r.returncode}"
+                        versions.append(f"{name}: {ver} ({match})")
+                    except Exception:
+                        versions.append(f"{name}: {match}")
+    if not versions:
+        default = shutil.which(cmd)
+        if default:
+            try:
+                r = subprocess.run([default, "--version"], capture_output=True, text=True, timeout=5)
+                ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else ""
+                versions.append(f"{cmd}: {ver} ({default})")
+            except Exception:
+                versions.append(f"{cmd}: {default}")
+        else:
+            return f"No versions of '{cmd}' found in PATH"
+    return "\n".join(versions[:10])
+
+
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -255,6 +318,28 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "check_repo_info",
+            "description": "Check current git repository: branch, remote URL, HEAD SHA, dirty/clean status, and recent commits. Use to understand the project context before generating commands.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_command_versions",
+            "description": "Find all installed versions of a command (e.g., 'python', 'R', 'node') in PATH. Use to check which versions are available before generating version-specific code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Command to check versions for, e.g. 'python', 'R', 'node'"}
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment.",
             "parameters": {
@@ -280,6 +365,8 @@ TOOL_HANDLERS = {
     "check_command": check_command,
     "get_env_info": get_env_info,
     "run_command": _run_command,
+    "check_repo_info": check_repo_info,
+    "check_command_versions": check_command_versions,
 }
 
 
