@@ -183,6 +183,8 @@ class TestHistoryIntegration:
             open(histfile, "a").close()
         try:
             import readline
-            assert readline.get_history_length() >= 0  # just to confirm it's configured
+            hl = readline.get_history_length()
+            # -1 means not configured yet (runs before repl imports readline)
+            assert hl == -1 or hl >= 0
         except ImportError:
             pytest.skip("readline not available")

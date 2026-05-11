@@ -7,11 +7,19 @@ try:
     import readline
     HISTFILE = os.path.join(os.path.expanduser("~"), ".srun", "history")
     try:
+        os.makedirs(os.path.dirname(HISTFILE), exist_ok=True)
         readline.read_history_file(HISTFILE)
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError, OSError):
         pass
     readline.set_history_length(1000)
-    atexit.register(readline.write_history_file, HISTFILE)
+
+    def _save_history():
+        try:
+            os.makedirs(os.path.dirname(HISTFILE), exist_ok=True)
+            readline.write_history_file(HISTFILE)
+        except (FileNotFoundError, PermissionError, OSError):
+            pass
+    atexit.register(_save_history)
 
     def _tab_completer(text, state):
         import glob
