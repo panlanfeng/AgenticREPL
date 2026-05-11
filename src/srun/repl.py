@@ -148,7 +148,13 @@ def _run_file(path, py_exec, sh_exec, r_exec):
     total_start = time.perf_counter()
     for line in lines:
         start = time.perf_counter()
-        result = _run_input(line, py_exec, sh_exec, r_exec)
+        try:
+            result = _run_input(line, py_exec, sh_exec, r_exec)
+        except KeyboardInterrupt:
+            print(f"✗ {line[:50]:50s} (interrupted)")
+            _abort_executors(py_exec, sh_exec, r_exec)
+            failed += 1
+            continue
         elapsed_ms = (time.perf_counter() - start) * 1000
         if result.get("llm_used"):
             llm_calls += 1
@@ -383,7 +389,12 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
 
         start = time.perf_counter()
-        result = _run_input(user_input, py_exec, sh_exec, r_exec)
+        try:
+            result = _run_input(user_input, py_exec, sh_exec, r_exec)
+        except KeyboardInterrupt:
+            print("\nInterrupted")
+            _abort_executors(py_exec, sh_exec, r_exec)
+            continue
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
             code = result.get("fixed_code") or result.get("generated_code") or ""
@@ -415,8 +426,8 @@ def _handle_ssh(command, sh_exec):
 
 
 def _confirm_execution(code, result, sh_exec, py_exec, r_exec):
-    print(f"\033[1;33m⟳  {code}\033[0m")
-    print("\033[2m[Enter] execute  [Ctrl+C] skip\033[0m")
+    print(f"\033[1;33m  | {code}\033[0m")
+    print("\033[2m  [Enter] run  [Ctrl+C] skip\033[0m", end=" ", flush=True)
     try:
         response = input().strip()
     except (EOFError, KeyboardInterrupt):
@@ -431,6 +442,21 @@ def _confirm_execution(code, result, sh_exec, py_exec, r_exec):
             ok, out, *_ = sh_exec.execute(code)
         return {"success": ok, "output": out.strip() if out else "", "llm_used": True, "language": lang, "fixed_code": code}
     return {"success": True, "output": "skipped", "llm_used": True, "language": result.get("language")}
+
+
+def _abort_executors(py_exec, sh_exec, r_exec):
+    """Kill running subprocesses on Ctrl+C — does not kill srun."""
+    for ex in (py_exec, r_exec):
+        if hasattr(ex, "_process") and ex._process and ex._process.poll() is None:
+            try:
+                ex._process.terminate()
+                ex._process.wait(timeout=1)
+            except Exception:
+                try:
+                    ex._process.kill()
+                except Exception:
+                    pass
+            ex._process = None
 
 
 def _log_turn(user_input, result, elapsed_ms):

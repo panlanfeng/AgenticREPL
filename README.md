@@ -1,8 +1,8 @@
 # AgenticREPL — Make your terminal think for you
 
-AgenticREPL unifies your terminal and AI agent into one. Talk to your terminal in plain language, half-formed thoughts, or any syntax you like. It figures out what you mean, translates it into the correct command, and runs it. Your agent knows what commands you've run, and your terminal knows how to take your instructions to the agent.
+AgenticREPL unifies your terminal and AI agent into one. Talk to your terminal in plain language, half-formed thoughts, or any syntax you like. It figures out what you mean, translates it into the correct command, and runs it. Your agent knows what commands you've run, and your terminal knows to send your instructions to the agent.
 
-**Why not just use a coding agent?** AgenticREPL puts code execution first and adds no latency unless you have trouble or write in natural language. Regular coding agents send every keystroke through an LLM — heavyweight and slow. We need AI agents that can do end-to-end work, but also agents that execute normally and quietly help only when needed.
+**Why not just use a coding agent?** AgenticREPL puts code execution first and adds no latency unless you have trouble or write in natural language. Regular coding agents send every keystroke through an LLM — heavyweight and slow. We need AI agents that can do end-to-end work, but also agents that execute efficiently and quietly help only when needed.
 
 For exploratory data analysis in particular, iterative data exploration gives researchers their first intuition about a problem. Some syntax in well-known packages like `dplyr`, `pandas`, or `ggplot2` is too verbose to remember. AgenticREPL lets you explore data in any syntax, or just in plain English. For example, this runs correctly in AgenticREPL's R session: `mtcars.filter(wt>5).mean(X) for X in (gear, carb)`. See more examples below.
 
