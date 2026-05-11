@@ -173,6 +173,7 @@ class SessionState:
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        self.session_dir = SESSION_DIR
         self.full_history_path = FULL_HISTORY_FILE
         self.outputs_dir = OUTPUTS_DIR
         self.state_path = STATE_FILE
@@ -185,6 +186,23 @@ class SessionState:
         self.last_dispatch_error = None
         self._context_injected = False
         self._llm_last_known_language = self._current_language
+
+    def resume_session(self, session_id):
+        """Resume a previous session by ID. Loads its history and redirects
+        all future writes (history, outputs) to that session's directory."""
+        target_dir = os.path.join(BASE_DIR, "sessions", session_id)
+        target_history = os.path.join(target_dir, "full_history.jsonl")
+        if not os.path.isfile(target_history):
+            return False
+        os.environ["SRUN_SESSION_ID"] = session_id
+        self.session_dir = target_dir
+        self.full_history_path = target_history
+        self.outputs_dir = os.path.join(target_dir, "outputs")
+        self.state_path = os.path.join(target_dir, "state.json")
+        self._memory_file = os.path.join(target_dir, "MEMORY.md")
+        os.makedirs(self.outputs_dir, exist_ok=True)
+        self._load_conversation_state()
+        return True
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
@@ -305,18 +323,18 @@ class SessionState:
             "summary": self._stable_summary,
             "conversation": self._conversation,
         }
-        os.makedirs(SESSION_DIR, exist_ok=True)
-        with open(FULL_HISTORY_FILE, "a") as f:
+        os.makedirs(self.session_dir, exist_ok=True)
+        with open(self.full_history_path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _load_conversation_state(self):
         """Restore _stable_summary from the last compaction snapshot in history.
         _conversation starts fresh each session — only the summary persists."""
-        if not os.path.isfile(FULL_HISTORY_FILE):
+        if not os.path.isfile(self.full_history_path):
             return
         best_summary = None
         try:
-            with open(FULL_HISTORY_FILE, "r") as f:
+            with open(self.full_history_path, "r") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -365,21 +383,21 @@ class SessionState:
         }
 
         if len(output_lines) > 20:
-            out_path = os.path.join(OUTPUTS_DIR, f"turn_{self._turn}_out.txt")
+            out_path = os.path.join(self.outputs_dir, f"turn_{self._turn}_out.txt")
             with open(out_path, "w") as f:
                 f.write(output)
             record["output"] = "\n".join(output_lines[:3]) + f"\n... ({len(output_lines)} lines total, see output_file)"
-            record["output_file"] = os.path.relpath(out_path, SESSION_DIR)
+            record["output_file"] = os.path.relpath(out_path, self.session_dir)
         elif output:
             record["output"] = output[:2000]
 
         if len(error_lines) > 20:
-            err_path = os.path.join(OUTPUTS_DIR, f"turn_{self._turn}_err.txt")
+            err_path = os.path.join(self.outputs_dir, f"turn_{self._turn}_err.txt")
             with open(err_path, "w") as f:
                 f.write(error)
-            record["error_file"] = os.path.relpath(err_path, SESSION_DIR)
+            record["error_file"] = os.path.relpath(err_path, self.session_dir)
 
-        with open(FULL_HISTORY_FILE, "a") as f:
+        with open(self.full_history_path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def log_conversation(self, messages):
@@ -395,7 +413,7 @@ class SessionState:
             "timestamp": _datetime.datetime.now().isoformat(),
             "messages": clean,
         }
-        with open(FULL_HISTORY_FILE, "a") as f:
+        with open(self.full_history_path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _tail_lines(self, text, n=10):

@@ -117,8 +117,26 @@ def main():
     py_exec = PythonExecutor()
     sh_exec = ShellExecutor()
     r_exec = RExecutor()
+
+    # Parse --resume <session_id>
+    resume_id = None
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == "--resume" and i + 1 < len(sys.argv):
+            resume_id = sys.argv[i + 1]
+            sys.argv.pop(i)
+            sys.argv.pop(i)
+        else:
+            i += 1
+
     state.reset_session()
-    state._load_conversation_state()  # restore context from previous session
+    if resume_id:
+        if state.resume_session(resume_id):
+            print(f"\033[2m  resumed session {resume_id}\033[0m")
+        else:
+            print(f"\033[2m  session {resume_id} not found — starting fresh\033[0m")
+    else:
+        state._load_conversation_state()  # restore context from current session
 
     # Connect MCP servers from config
     mcp_servers = config_get("mcp_servers") or {}
@@ -330,9 +348,11 @@ def _run_repl(py_exec, sh_exec, r_exec):
             print("  \033[2mexit / quit\033[0m    exit current session or REPL")
             print("  \033[2m/configure\033[0m     set up API key")
             print("  \033[2m/stats\033[0m         show LLM usage statistics")
+            print("  \033[2m/sessions\033[0m      list available sessions")
             print("  \033[2m/skills\033[0m        list loaded skills")
             print("  \033[2m/mcp\033[0m           list MCP server tools")
             print("  \033[2mCtrl+D\033[0m         exit")
+            print("\033[2m  srun --resume <id>  resume a previous session\033[0m")
             continue
 
         if user_input.lower() in ("/stats", "/usage"):
@@ -364,6 +384,24 @@ def _run_repl(py_exec, sh_exec, r_exec):
                     print(f"  \033[2m{t['function']['name']}\033[0m — {t['function']['description'][:80]}")
             else:
                 print("\033[2m  no MCP servers connected\033[0m")
+            continue
+
+        if user_input.lower() in ("/sessions",):
+            import glob
+            session_dirs = sorted(glob.glob(os.path.join(os.path.expanduser("~"), ".srun", "sessions", "*")))
+            if session_dirs:
+                print("\033[1msessions\033[0m")
+                for d in session_dirs:
+                    sid = os.path.basename(d)
+                    marker = " ← current" if d == state.session_dir else ""
+                    history = os.path.join(d, "full_history.jsonl")
+                    turns = 0
+                    if os.path.isfile(history):
+                        with open(history) as f:
+                            turns = sum(1 for l in f if l.strip())
+                    print(f"  \033[2m{sid}\033[0m ({turns} turns){marker}")
+            else:
+                print("\033[2m  no sessions found\033[0m")
             continue
 
         # --- built-in: configure API key ---
