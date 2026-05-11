@@ -222,7 +222,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
                 if danger:
                     return {
                         "success": False,
-                        "output": f"\033[1;31mBLOCKED\033[0m (agent) — {desc}\nCommand: {cmd}",
+                        "output": f"\033[1;31mBLOCKED\033[0m — {desc}\nCommand: {cmd}",
                         "llm_used": True, "language": lang,
                     }
         first = tool_calls[0]
@@ -256,7 +256,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
             elif lang == "r":
                 prompt = _rl_prompt("\033[1;34mR>\033[0m ")
             elif sh_exec.remote:
-                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32magent>\033[0m ')}"
+                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32mshell>\033[0m ')}"
             else:
                 cwd = os.getcwd()
                 home = os.path.expanduser("~")
@@ -264,7 +264,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
                     cwd = "~" + cwd[len(home):]
                 parts = cwd.rstrip("/").split("/")
                 display = "/".join(parts[-2:]) if len(parts) > 2 else cwd
-                prompt = f"\033[2m{display}\033[0m {_rl_prompt('\033[1;32magent>\033[0m ')}"
+                prompt = f"\033[2m{display}\033[0m {_rl_prompt('\033[1;32mshell>\033[0m ')}"
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
@@ -284,7 +284,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
             if _exit_pending:
                 break
             _exit_pending = True
-            print("Press Ctrl+D again to exit agent.")
+            print("Press Ctrl+D again to exit.")
             continue
 
         if not user_input:
@@ -292,7 +292,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
 
         # --- built-in: help and stats ---
         if user_input.lower() in ("/help", "help", "/?"):
-            print("\033[1magent — commands\033[0m")
+            print("\033[1mshell — commands\033[0m")
             print("  \033[2m<command>\033[0m       execute shell/python/R")
             print("  \033[2m<text>\033[0m          describe what you want in natural language")
             print("  \033[2mssh host\033[0m       connect to remote server")
@@ -671,7 +671,7 @@ def print_result(result, elapsed_ms):
         print(output.rstrip())
 
     if llm:
-        print(f"\033[2m  agent — {elapsed_ms:.0f}ms\033[0m")
+        print(f"\033[2m  shell — {elapsed_ms:.0f}ms\033[0m")
     else:
         print(f"\033[2m  {elapsed_ms:.0f}ms\033[0m")
 
