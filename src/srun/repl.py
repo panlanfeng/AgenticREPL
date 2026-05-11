@@ -125,7 +125,6 @@ def main():
         print(f"\033[2m  model: {config.model}\033[0m")
     else:
         print("\033[2m  no API key — /configure to set up\033[0m")
-    print()
 
     if len(sys.argv) > 1:
         _run_file(sys.argv[1], py_exec, sh_exec, r_exec)
