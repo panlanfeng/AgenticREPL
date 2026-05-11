@@ -44,13 +44,13 @@ User input
 
 - plan and execute mode
 - ~~snip the old tool results. ~~
-- UX, transparency, different font
+- ~~UX, transparency, different font~~
 - ~~install the dependencies and ask for permission~~
 - for danger commands, output the command, do not execute it until user approve. 
 - ~~add the summary for context compact into conversation history. ~~
 - ~~skill and mcp support~~
-- no need to specify the language. should always be the same as environment
-- allow user to add agents.md
+- ~~no need to specify the language. should always be the same as environment~~
+- ~~allow user to add agents.md~~
 - resume from conversation
 - self evovling
-- ctrl + C only stop the current command in R, not the whole srun. 
+- ~~ctrl + C only stop the current command in R, not the whole srun. ~~

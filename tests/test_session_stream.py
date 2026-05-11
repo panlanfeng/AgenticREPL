@@ -484,13 +484,12 @@ class TestCompactionPersistence:
         assert any(e.get("type") == "compaction_snapshot" for e in lines), \
             "File must contain compaction_snapshot entry"
 
-        # Simulate restart: new state loads from file
+        # Simulate restart: summary is restored, conversation starts fresh
         new_state = SessionState()
         new_state._load_conversation_state()
         assert new_state._stable_summary == "User worked with CSV files: listed and counted 5 files."
-        assert len(new_state._conversation) == 4
-        assert new_state._conversation[0]["role"] == "user"
-        assert "find csv" in new_state._conversation[0]["content"]
+        # _conversation should be empty — fresh session
+        assert new_state._conversation == []
 
     def test_load_ignores_other_entry_types(self):
         from srun.context import SessionState, FULL_HISTORY_FILE
@@ -512,7 +511,8 @@ class TestCompactionPersistence:
         new_state = SessionState()
         new_state._load_conversation_state()
         assert new_state._stable_summary == "User said hello, assistant greeted."
-        assert len(new_state._conversation) == 2
+        # _conversation starts fresh — only summary is restored
+        assert new_state._conversation == []
 
     def test_no_file_loads_clean(self):
         from srun.context import SessionState, FULL_HISTORY_FILE
