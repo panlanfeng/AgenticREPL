@@ -47,8 +47,8 @@ User input
 - UX, transparency, different font
 - ~~install the dependencies and ask for permission~~
 - for danger commands, output the command, do not execute it until user approve. 
-- add the summary for context compact into conversation history. 
-- skill and mcp support
+- ~~add the summary for context compact into conversation history. ~~
+- ~~skill and mcp support~~
 - no need to specify the language. should always be the same as environment
 - allow user to add agents.md
 - resume from conversation

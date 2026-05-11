@@ -134,6 +134,17 @@ def main():
     if skills:
         print(f"\033[2m  skills: {', '.join(s.name for s in skills)}\033[0m")
 
+    # Load AGENTS.md
+    agents_files = []
+    home_agents = os.path.join(os.path.expanduser("~"), ".srun", "AGENTS.md")
+    cwd_agents = os.path.join(os.getcwd(), "AGENTS.md")
+    if os.path.isfile(home_agents):
+        agents_files.append("global")
+    if os.path.isfile(cwd_agents):
+        agents_files.append("project")
+    if agents_files:
+        print(f"\033[2m  AGENTS.md: {', '.join(agents_files)}\033[0m")
+
     print(LOGO)
     if llm.client:
         print(f"\033[2m  model: {config.model}\033[0m")

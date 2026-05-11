@@ -195,6 +195,10 @@ class SessionState:
                 mem = f.read()
             if mem.strip():
                 messages.append({"role": "user", "content": f"[Persistent memory — use this to personalize responses]\n{mem}"})
+        # Load AGENTS.md — global user instructions (always-on, user-written)
+        agents_md = self._load_agents_md()
+        if agents_md:
+            messages.append({"role": "user", "content": f"[AGENTS.md — user instructions]\n{agents_md}"})
         from .skills import get_skill_prompts
         skill_prompts = get_skill_prompts()
         if skill_prompts:
@@ -202,6 +206,29 @@ class SessionState:
         for entry in self._conversation:
             messages.append(entry)
         return messages
+
+    def _load_agents_md(self):
+        """Load AGENTS.md from ~/.srun/ (global) and current directory (project)."""
+        blocks = []
+        home_path = os.path.join(BASE_DIR, "AGENTS.md")
+        if os.path.isfile(home_path):
+            try:
+                with open(home_path) as f:
+                    content = f.read()
+                if content.strip():
+                    blocks.append(f"[global]\n{content}")
+            except Exception:
+                pass
+        cwd_path = os.path.join(os.getcwd(), "AGENTS.md")
+        if os.path.isfile(cwd_path):
+            try:
+                with open(cwd_path) as f:
+                    content = f.read()
+                if content.strip():
+                    blocks.append(f"[project]\n{content}")
+            except Exception:
+                pass
+        return "\n\n".join(blocks) if blocks else ""
 
     def add_conversation_turn(self, user_msg, assistant_code, error_output=None):
         new_msgs = [{"role": "user", "content": user_msg}]
