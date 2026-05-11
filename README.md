@@ -142,7 +142,12 @@ $ srun deploy.sh
 ## Quick start
 
 ```bash
-pip install -e .
+# Homebrew (macOS/Linux)
+brew install panlanfeng/agenticrepl/agenticrepl
+
+# Or via pip
+pip install git+https://github.com/panlanfeng/AgenticREPL.git
+
 export DEEPSEEK_API_KEY="sk-xxx"
 srun                           # verify it's working
 ```
