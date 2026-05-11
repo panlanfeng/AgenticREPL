@@ -147,8 +147,7 @@ def _run_file(path, py_exec, sh_exec, r_exec):
     total_start = time.perf_counter()
     for line in lines:
         start = time.perf_counter()
-        category = dispatcher.classify(line)
-        result = execute(category, line, py_exec, sh_exec, r_exec)
+        result = _run_input(line, py_exec, sh_exec, r_exec)
         elapsed_ms = (time.perf_counter() - start) * 1000
         if result.get("llm_used"):
             llm_calls += 1
@@ -161,6 +160,29 @@ def _run_file(path, py_exec, sh_exec, r_exec):
             print(f"  → {result['generated_code']}")
     total_ms = int((time.perf_counter() - total_start) * 1000)
     print(f"\n{len(lines)-failed}/{len(lines)} passed, {llm_calls} LLM calls, {total_ms}ms total")
+
+
+def _executor_for(lang, py_exec, sh_exec, r_exec):
+    m = {"shell": sh_exec, "python": py_exec, "r": r_exec}
+    return m.get(lang, sh_exec)
+
+
+def _run_input(user_input, py_exec, sh_exec, r_exec):
+    """Try direct execution first. If it fails, use LLM repair with agent loop."""
+    lang = state.current_language
+    executor = _executor_for(lang, py_exec, sh_exec, r_exec)
+
+    # Direct execution — zero latency for valid commands
+    success, output, *rest = executor.execute(user_input)
+    if success and not (lang == "shell" and _has_stderr_errors(rest[0] if rest else "")):
+        state.last_lang = lang
+        return {
+            "success": True, "output": output.strip() if output else "",
+            "llm_used": False, "language": lang,
+        }
+
+    # Failed — LLM repair with agent loop
+    return _retry_loop(user_input, executor, lang)
 
 
 def _run_repl(py_exec, sh_exec, r_exec):
@@ -275,13 +297,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
 
         start = time.perf_counter()
-        category = dispatcher.classify(user_input)
-        try:
-            result = execute(category, user_input, py_exec, sh_exec, r_exec)
-        except Exception as e:
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            result = {"success": False, "output": f"Internal error: {e}", "language": state.current_language, "llm_used": False}
+        result = _run_input(user_input, py_exec, sh_exec, r_exec)
 
         if result.get("llm_used") and config_get("confirm_llm_code"):
             code = result.get("fixed_code") or result.get("generated_code") or ""
