@@ -1,5 +1,5 @@
 
-## SRUN Project Overview
+## AgenticREPL Project Overview
 
 This is ligthweight AI agent focusing on efficient code execution with high tolerance to user input or code errors. It provide REPL for interactive usage `srun` and one time execution `srun test.sh`. The SRUN puts command execution first. Normal command will be executed with no extra latency and AI agent is only invoked when user user input is ambiguous or not directly executable. 
 

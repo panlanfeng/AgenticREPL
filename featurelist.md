@@ -1,4 +1,4 @@
-# srun — Feature List & Design
+# AgenticREPL — Feature List & Design
 
 ## Key Features
 
@@ -53,3 +53,4 @@ User input
 - allow user to add agents.md
 - resume from conversation
 - self evovling
+- ctrl + C only stop the current command in R, not the whole srun. 
