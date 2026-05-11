@@ -5,26 +5,11 @@ This is ligthweight AI agent focusing on efficient code execution with high tole
 
 ## Core routing logic
 
-User input is executed directly in the current session (shell/Python/R). If it succeeds with no errors, done — zero latency. If it fails, the LLM agent loop kicks in:
+After user input, the classifer identify the input category. If the category is clear and match the current active language in REPL, immediately execute it in the current environment. If the input is ambiguous or category differs from the current active langauge, go to llm. The llm decides the langauge to be used and where it should be executed. The LLM firstly chooses the langauge based on the user intention; say user stating this is XX langauge, it should firstly respect user intention;
+secondly, it should then choose the same language as the current environment. During the tool call generation, LLM should generate a code that is directly executable without relying on another classifer. If the language of the generated code matches the current environment, it sends the code to the current active session so the results are persistent. If the langauge of generated code is different from the current environment, identify if there is matching sessions in the backend. if yes, send it to the most recent matcing session. 
+If user intention is not to generate any code, LLM replies back in text as well. The tool call in this case can be any langauge appropriate and executable.
 
-```
-User input
-  └─ Execute in current session language
-       ├─ Success → done (zero latency)
-       └─ Failure → LLM agent loop
-            ├─ LLM uses tools (search_files, read_file, check_command...)
-            ├─ LLM generates run_command → executed inline, output fed back
-            ├─ LLM sees output, can call more tools or stop
-            └─ Loop until LLM stops or max rounds (10 tool call rounds, 4 repair retries)
-```
-
-**Key rules:**
-- Always generate code matching the current environment language. No cross-language routing.
-- When the current active language changes (user enters `python`/`r`/`exit()`), send a system reminder to the LLM.
-- The LLM uses OpenAI native function calling for tools (no JSON-as-text parsing required).
-- `run_command` tool calls execute inline via callback — the LLM sees the actual exit code and output (last 20 lines).
-- Repair loop: failed commands retry up to `max_retry_rounds` (configurable, default 4). Each round feeds the latest error back.
-- Quick fixes (aliases like `ll`→`ls -la`) resolve before LLM involvement.
+Add a system reminder message about the current active execution language, python or shell and inject into the context; Update and send the system reminder again when user entered a different session mode. Simiarly, when user used a different python version in the user input. if the new version python works, update the state about this new python version.
 
 ## Code style
 
@@ -91,8 +76,12 @@ $ srun test.sh
 ## Architecture
 
 ```
-User Input → classify (shell / python / unknown)
-  ├─ Shell / Python → execute → success? done
-  │                            └─ fail → LLM repair → retry (max 4 rounds)
-  └─ Unknown → LLM generates (language, code) → execute → ...
+User input
+  └─ Execute in current session (shell/Python/R)
+       ├─ Success → done (zero latency)
+       └─ Failure → LLM agent loop
+            ├─ LLM uses tools: search files, check commands, read data
+            ├─ LLM generates code → executed inline, output shown to user
+            ├─ LLM sees output, can call more tools or stop
+            └─ Loop until LLM stops or max rounds (up to 4 repair retries)
 ```

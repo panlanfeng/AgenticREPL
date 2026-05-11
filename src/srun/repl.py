@@ -122,9 +122,10 @@ def main():
 
     print(LOGO)
     if llm.client:
-        print(f"LLM: ready ({config.model})")
+        print(f"\033[2m  model: {config.model}\033[0m")
     else:
-        print("LLM: no API key — set api_key in ~/.srun/user_config.json or export DEEPSEEK_API_KEY")
+        print("\033[2m  no API key — /configure to set up\033[0m")
+    print()
 
     if len(sys.argv) > 1:
         _run_file(sys.argv[1], py_exec, sh_exec, r_exec)
@@ -201,7 +202,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         if danger:
             return {
                 "success": False,
-                "output": f"BLOCKED: {desc}",
+                "output": f"\033[1;31mBLOCKED\033[0m — {desc}",
                 "llm_used": False, "language": lang,
             }
 
@@ -221,7 +222,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
                 if danger:
                     return {
                         "success": False,
-                        "output": f"BLOCKED (LLM generated): {desc}\nCommand: {cmd}",
+                        "output": f"\033[1;31mBLOCKED\033[0m (agent) — {desc}\nCommand: {cmd}",
                         "llm_used": True, "language": lang,
                     }
         first = tool_calls[0]
@@ -238,7 +239,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         return {"success": True, "output": "", "llm_used": True, "language": "text"}
     return {
         "success": False,
-        "output": "Unable to understand this input. Try rephrasing.",
+        "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
         "llm_used": True, "language": lang,
     }
 
@@ -255,9 +256,15 @@ def _run_repl(py_exec, sh_exec, r_exec):
             elif lang == "r":
                 prompt = _rl_prompt("\033[1;34mR>\033[0m ")
             elif sh_exec.remote:
-                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32msrun>\033[0m ')}"
+                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32magent>\033[0m ')}"
             else:
-                prompt = f"{os.getcwd()}\n{_rl_prompt('\033[1;32msrun>\033[0m ')}"
+                cwd = os.getcwd()
+                home = os.path.expanduser("~")
+                if cwd.startswith(home):
+                    cwd = "~" + cwd[len(home):]
+                parts = cwd.rstrip("/").split("/")
+                display = "/".join(parts[-2:]) if len(parts) > 2 else cwd
+                prompt = f"\033[2m{display}\033[0m {_rl_prompt('\033[1;32magent>\033[0m ')}"
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
@@ -277,10 +284,32 @@ def _run_repl(py_exec, sh_exec, r_exec):
             if _exit_pending:
                 break
             _exit_pending = True
-            print("Press Ctrl+D again to exit srun.")
+            print("Press Ctrl+D again to exit agent.")
             continue
 
         if not user_input:
+            continue
+
+        # --- built-in: help and stats ---
+        if user_input.lower() in ("/help", "help", "/?"):
+            print("\033[1magent — commands\033[0m")
+            print("  \033[2m<command>\033[0m       execute shell/python/R")
+            print("  \033[2m<text>\033[0m          describe what you want in natural language")
+            print("  \033[2mssh host\033[0m       connect to remote server")
+            print("  \033[2mpython / r\033[0m     enter Python or R session")
+            print("  \033[2mexit / quit\033[0m    exit current session or REPL")
+            print("  \033[2m/configure\033[0m     set up API key")
+            print("  \033[2m/stats\033[0m         show LLM usage statistics")
+            print("  \033[2mCtrl+D\033[0m         exit")
+            continue
+
+        if user_input.lower() in ("/stats", "/usage"):
+            from .llm import llm as llm_mod
+            s = llm_mod.cache_stats
+            if s["total_tokens"] > 0:
+                print(f"\033[2m  prompt cache: {s['rate']:.0%} hit ({s['total_tokens']} tokens)\033[0m")
+            else:
+                print("\033[2m  no LLM usage yet\033[0m")
             continue
 
         # --- built-in: configure API key ---
@@ -589,7 +618,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
             return {"success": True, "output": "", "llm_used": False, "language": "text"}
         return {
             "success": False,
-            "output": "Unable to understand this input. Try rephrasing.",
+            "output": "Could not translate to a command.",
             "llm_used": True,
             "summary": "The input could not be translated into an executable command.",
         }
@@ -634,20 +663,17 @@ def print_result(result, elapsed_ms):
     if gave_up:
         print(f"\033[2m   {result['summary']}\033[0m")
     if fixed:
-        print(f"\033[1;33m⟳  {fixed}\033[0m")
+        print(f"\033[1;33m  ┃ {fixed}\033[0m")
     if generated:
-        print(f"\033[1;33m⟳  {generated}\033[0m")
+        print(f"\033[1;33m  ┃ {generated}\033[0m")
 
     if output:
         print(output.rstrip())
 
-    llm_tag = " \033[1;33m+LLM\033[0m" if llm else ""
-    from .llm import llm as llm_mod
-    stats = llm_mod.cache_stats
-    cache_part = ""
-    if stats["total_tokens"] > 0:
-        cache_part = f" cache:{stats['rate']:.0%}"
-    print(f"{llm_tag} \033[2m{elapsed_ms:.0f}ms{cache_part}\033[0m")
+    if llm:
+        print(f"\033[2m  agent — {elapsed_ms:.0f}ms\033[0m")
+    else:
+        print(f"\033[2m  {elapsed_ms:.0f}ms\033[0m")
 
 
 if __name__ == "__main__":

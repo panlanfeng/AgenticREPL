@@ -125,6 +125,7 @@ class LLM:
                 content_parts = []
                 tool_call_data = {}
                 usage = None
+                thinking = False
 
                 for chunk in stream:
                     if chunk.usage:
@@ -133,6 +134,10 @@ class LLM:
                     if not delta:
                         continue
                     if delta.content:
+                        if not thinking:
+                            thinking = True
+                            print("\033[2m  ···\033[0m", end="", flush=True)
+                            print("\r\033[K\033[2m  >\033[0m ", end="", flush=True)
                         print(delta.content, end="", flush=True)
                         content_parts.append(delta.content)
                     if delta.tool_calls:
