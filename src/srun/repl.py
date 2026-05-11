@@ -515,7 +515,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     lang_val = "shell"
     if isinstance(first_cmd, dict):
         lang_val = first_cmd.get("language", "shell")
-    return {"success": True, "output": "", "llm_used": True,
+    return {"success": True, "output": llm._last_output.strip() if llm._last_output else "", "llm_used": True,
             "language": lang_val,
             "generated_code": gen_code if len(tool_calls) == 1 else None,
             "summary": summary}

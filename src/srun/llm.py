@@ -55,6 +55,7 @@ class LLM:
             self.client = OpenAI(api_key=config.api_key, base_url=config.api_base)
         self._hit_tokens = 0
         self._miss_tokens = 0
+        self._last_output = ""  # captured output from last inline run_command
 
     def run(self, user_input, error=None, exec_callback=None):
         if not self.client:
@@ -181,6 +182,7 @@ class LLM:
                                     commands.append({"command": cmd, "language": lang})
                                 if exec_callback and cmd:
                                     ok, out, *_ = exec_callback(cmd, lang)
+                                    self._last_output = out
                                     out_lines = out.strip().split("\n") if out else []
                                     if len(out_lines) > 20:
                                         out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
