@@ -65,12 +65,12 @@ class LLM:
             failure_text = (
                 f"The user typed this command: {user_input}\n"
                 f"It failed with this error:\n{error}\n\n"
-                f"Fix the command and output the correct version as JSON."
+                f"Fix the command and execute it via run_command."
             )
         else:
             failure_text = (
                 f"The user typed: {user_input}\n\n"
-                f"Generate the correct executable command as JSON."
+                f"Generate the correct command and execute it via run_command."
             )
 
         tools = TOOL_DEFINITIONS
@@ -116,7 +116,7 @@ class LLM:
         for _ in range(10):
             start = time.perf_counter()
             try:
-                kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 500, "stream": True}
+                kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 2000, "stream": True}
                 if tools:
                     kwargs["tools"] = tools
                     kwargs["tool_choice"] = "auto"

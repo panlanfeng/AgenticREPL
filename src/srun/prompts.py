@@ -14,6 +14,7 @@ When generating code via run_command:
 - Match the current environment language shown in context (do not switch languages).
 - Output directly executable code — no shell wrappers, no escaping.
 - Use real newlines in strings, not escaped \\n.
+- Print results directly to the user. Do NOT wrap output in JSON or any other format — the raw output IS what the user sees.
 
 Tool usage:
 - Use search_files + read_file FIRST to understand data before generating commands.
