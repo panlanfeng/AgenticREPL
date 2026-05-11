@@ -195,6 +195,10 @@ class SessionState:
                 mem = f.read()
             if mem.strip():
                 messages.append({"role": "user", "content": f"[Persistent memory — use this to personalize responses]\n{mem}"})
+        from .skills import get_skill_prompts
+        skill_prompts = get_skill_prompts()
+        if skill_prompts:
+            messages.append({"role": "user", "content": skill_prompts})
         for entry in self._conversation:
             messages.append(entry)
         return messages

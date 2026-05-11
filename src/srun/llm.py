@@ -8,6 +8,7 @@ from .config import config
 from .context import state
 from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
+from .mcp import mcp
 
 
 def _extract_command_from_text(text):
@@ -73,7 +74,7 @@ class LLM:
                 f"Generate the correct command and execute it via run_command."
             )
 
-        tools = TOOL_DEFINITIONS
+        tools = TOOL_DEFINITIONS + mcp.all_tools()
 
         system_prompt = PROMPT.format()
         messages = state.build_conversation_messages(system_prompt)
@@ -207,7 +208,10 @@ class LLM:
                                 label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions").replace("ask_user", "requesting confirmation")
                                 val = list(args.values())[0] if args else ""
                                 print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
-                                result = execute_tool(tc.function.name, args)
+                                if tc.function.name.startswith("mcp_"):
+                                    result = mcp.call_tool(tc.function.name, args)
+                                else:
+                                    result = execute_tool(tc.function.name, args)
                                 content = result
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                     state.log_conversation(messages)

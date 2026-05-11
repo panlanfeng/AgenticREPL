@@ -120,6 +120,20 @@ def main():
     state.reset_session()
     state._load_conversation_state()  # restore context from previous session
 
+    # Connect MCP servers from config
+    mcp_servers = config_get("mcp_servers") or {}
+    for name, cfg in mcp_servers.items():
+        if isinstance(cfg, dict):
+            from .mcp import mcp as mcp_mgr
+            mcp_mgr.add_server(name, cfg.get("command", ""),
+                               cfg.get("args", []), cfg.get("env"))
+
+    # Load skills
+    from .skills import load_skills, SKILLS_DIR
+    skills = load_skills()
+    if skills:
+        print(f"\033[2m  skills: {', '.join(s.name for s in skills)}\033[0m")
+
     print(LOGO)
     if llm.client:
         print(f"\033[2m  model: {config.model}\033[0m")
@@ -305,6 +319,8 @@ def _run_repl(py_exec, sh_exec, r_exec):
             print("  \033[2mexit / quit\033[0m    exit current session or REPL")
             print("  \033[2m/configure\033[0m     set up API key")
             print("  \033[2m/stats\033[0m         show LLM usage statistics")
+            print("  \033[2m/skills\033[0m        list loaded skills")
+            print("  \033[2m/mcp\033[0m           list MCP server tools")
             print("  \033[2mCtrl+D\033[0m         exit")
             continue
 
@@ -315,6 +331,28 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 print(f"\033[2m  prompt cache: {s['rate']:.0%} hit ({s['total_tokens']} tokens)\033[0m")
             else:
                 print("\033[2m  no LLM usage yet\033[0m")
+            continue
+
+        if user_input.lower() in ("/skills",):
+            from .skills import load_skills
+            skills = load_skills()
+            if skills:
+                print("\033[1mskills\033[0m")
+                for s in skills:
+                    print(f"  \033[2m{s.name}\033[0m — {s.path}")
+            else:
+                print("\033[2m  no skills loaded — add .md files to ~/.srun/skills/\033[0m")
+            continue
+
+        if user_input.lower() in ("/mcp",):
+            from .mcp import mcp as mcp_mgr
+            tools = mcp_mgr.all_tools()
+            if tools:
+                print(f"\033[1mmcp tools\033[0m ({len(tools)} available)")
+                for t in tools:
+                    print(f"  \033[2m{t['function']['name']}\033[0m — {t['function']['description'][:80]}")
+            else:
+                print("\033[2m  no MCP servers connected\033[0m")
             continue
 
         # --- built-in: configure API key ---

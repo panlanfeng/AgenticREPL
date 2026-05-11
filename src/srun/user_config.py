@@ -11,6 +11,7 @@ DEFAULTS = {
     "api_key": "",
     "api_base": "",
     "api_model": "",
+    "mcp_servers": {},
 }
 
 TYPES = {
@@ -19,6 +20,7 @@ TYPES = {
     "api_key": str,
     "api_base": str,
     "api_model": str,
+    "mcp_servers": dict,
 }
 
 _cache = None

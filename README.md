@@ -98,6 +98,10 @@ R> plot mtcars with mpg on x, hp on y, color points by cyl as factor, add smooth
   |   labs(color = "cyl")
 ```
 
+## AgenticREPL is a full fledged AI Agent
+
+It is not just translating your command as a one time request but it view all the full interaction history and understand your intention. 
+
 ## How it works
 
 ```
