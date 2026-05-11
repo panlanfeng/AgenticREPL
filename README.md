@@ -62,15 +62,20 @@ R> plot mtcars with mpg on x, hp on y, color points by cyl as factor, add smooth
 ## How it works
 
 ```
-Your input
-  ├─ Valid shell/Python/R command? → execute immediately (<10ms)
-  │   └─ Failed? → LLM reads the error, fixes it, retries (up to 4 rounds)
-  │
-  └─ Ambiguous / natural language? → LLM generates executable code
-       ├─ Respects your stated language ("in Python, load csv")
-       ├─ Matches your session context (Python mode → Python code)
-       └─ Routes to the right executor (shell, Python, or R)
+User input
+  └─ Execute in current session (shell/Python/R)
+       ├─ Success → done (zero latency)
+       └─ Failure → LLM agent loop
+            ├─ LLM uses tools: search files, check commands, read data
+            ├─ LLM generates code → executed inline, output shown to user
+            ├─ LLM sees output, can call more tools or stop
+            └─ Loop until LLM stops or max rounds (up to 4 repair retries)
 ```
+
+- **Try first, ask later** — execute directly. Only call LLM when something fails.
+- **Locked to current session** — shell commands in shell mode, R code in R mode. No surprise language switches.
+- **Agent loop** — LLM can do multi-step: search → read → generate → execute → check → refine.
+- **LLM sees output** — every `run_command` tool call returns actual exit code and last 20 lines of output.
 
 ## Error auto-repair
 
