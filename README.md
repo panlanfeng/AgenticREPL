@@ -140,7 +140,15 @@ $ srun deploy.sh
 ```bash
 pip install -e .
 export DEEPSEEK_API_KEY="sk-xxx"
-srun
+srun                           # verify it's working
+```
+
+If `srun` is not found, ensure pip's bin directory is on your PATH:
+```bash
+which srun                     # should show the installed path
+# If not found, add to PATH:
+export PATH="$(python -m site --user-base)/bin:$PATH"  # Linux/Mac user install
+export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"  # venv
 ```
 
 No API key? `srun` still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
