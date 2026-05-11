@@ -168,7 +168,7 @@ def _executor_for(lang, py_exec, sh_exec, r_exec):
 
 
 def _run_input(user_input, py_exec, sh_exec, r_exec):
-    """Try direct execution first. If it fails, use LLM repair with agent loop."""
+    """Try direct execution first. If it fails, dispatch to LLM agent loop."""
     lang = state.current_language
     executor = _executor_for(lang, py_exec, sh_exec, r_exec)
 
@@ -181,8 +181,30 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             "llm_used": False, "language": lang,
         }
 
-    # Failed — LLM repair with agent loop
-    return _retry_loop(user_input, executor, lang)
+    # Failed — dispatch to LLM agent loop with inline execution
+    summary, tool_calls = llm.run(
+        user_input,
+        error=output if not success else (rest[0] if rest else ""),
+        exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
+    )
+    if tool_calls:
+        first = tool_calls[0]
+        gen_code = first["command"] if isinstance(first, dict) else str(first)
+        all_code = "; ".join(tc["command"] if isinstance(tc, dict) else str(tc) for tc in tool_calls)
+        return {
+            "success": True,
+            "output": llm._last_output.strip() if llm._last_output else "",
+            "llm_used": True, "language": lang,
+            "generated_code": all_code if len(tool_calls) > 0 else None,
+            "summary": summary,
+        }
+    if summary:
+        return {"success": True, "output": "", "llm_used": True, "language": "text"}
+    return {
+        "success": False,
+        "output": "Unable to understand this input. Try rephrasing.",
+        "llm_used": True, "language": lang,
+    }
 
 
 def _run_repl(py_exec, sh_exec, r_exec):
