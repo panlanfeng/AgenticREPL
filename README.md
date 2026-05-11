@@ -1,8 +1,9 @@
 # srun — The terminal that thinks with you
 
-**Talk to your terminal in broken grammar, half-formed thoughts, or plain English. It figures out what you meant, writes the correct command, runs it, fixes errors without asking, and keeps your sessions alive.**
 
-**Why not just use a coding agent?** Most coding agents send every keystroke through an LLM. `ls` takes 2 seconds. Variables, imports, and dataframes die between commands because each runs in a fresh process. `srun` keeps sessions alive. Python and R run as persistent processes — your data, variables, and packages stay loaded. The LLM only intervenes when there's an error or ambiguity. Normal commands execute at terminal speed: `<10ms` for shell, `<1ms` for Python expressions.
+**Unify your console and AI agent as one. Talk to your terminal in any grammar, half-formed thoughts, or plain langauge. It figures out what you meant, writes the correct command, runs it, fixes errors without asking, and keeps your sessions alive.**
+
+**Why not just use a coding agent?** Most coding agents send every keystroke through an LLM. `ls` takes 2 seconds. Variables, imports, and dataframes die between commands because each runs in a fresh process. `srun` keeps sessions alive. Python and R run as persistent processes — your data, variables, and packages stay loaded. The LLM only intervenes when there's an error or ambiguity. Normal commands does not go to llm and execute at terminal speed: `<10ms` for a regular commands.
 
 ```bash
 $ srun
