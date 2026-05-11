@@ -51,7 +51,7 @@ from .dispatch import dispatcher
 from .context import state
 from .logo import LOGO
 from .llm import llm
-from .repair import repairer
+from .repair import repairer, apply_quick_fix
 from .danger import check_danger
 from .config import config, init as config_init
 from .executors.python_exec import PythonExecutor
@@ -173,6 +173,19 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
     lang = state.current_language
     executor = _executor_for(lang, py_exec, sh_exec, r_exec)
 
+    # Quick-fix: try known aliases/typos before direct execution
+    if lang == "shell":
+        quick = apply_quick_fix(user_input, "")
+        if quick:
+            success, output, *rest = executor.execute(quick)
+            if success:
+                state.last_lang = lang
+                return {
+                    "success": True, "output": output.strip() if output else "",
+                    "llm_used": False, "language": lang,
+                    "fixed_code": quick,
+                }
+
     # Direct execution — zero latency for valid commands
     success, output, *rest = executor.execute(user_input)
     if success and not (lang == "shell" and _has_stderr_errors(rest[0] if rest else "")):
@@ -182,6 +195,16 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             "llm_used": False, "language": lang,
         }
 
+    # Danger check on user input
+    if lang == "shell":
+        danger, desc = check_danger(user_input)
+        if danger:
+            return {
+                "success": False,
+                "output": f"BLOCKED: {desc}",
+                "llm_used": False, "language": lang,
+            }
+
     # Failed — dispatch to LLM agent loop with inline execution
     summary, tool_calls = llm.run(
         user_input,
@@ -190,6 +213,17 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         ask_user_callback=_ask_user_inline(),
     )
     if tool_calls:
+        # Danger check on LLM-generated commands
+        if lang == "shell":
+            for tc in tool_calls:
+                cmd = tc["command"] if isinstance(tc, dict) else str(tc)
+                danger, desc = check_danger(cmd)
+                if danger:
+                    return {
+                        "success": False,
+                        "output": f"BLOCKED (LLM generated): {desc}\nCommand: {cmd}",
+                        "llm_used": True, "language": lang,
+                    }
         first = tool_calls[0]
         gen_code = first["command"] if isinstance(first, dict) else str(first)
         all_code = "; ".join(tc["command"] if isinstance(tc, dict) else str(tc) for tc in tool_calls)

@@ -1,7 +1,12 @@
-"""Tests for dispatch.py — input classification."""
+"""Tests for dispatch.py — input classification.
+LEGACY: classifier is no longer called by the active REPL path (_run_input).
+These tests are preserved for dispatch.py backward compatibility.
+"""
 
 import pytest
 from srun.dispatch import dispatcher
+
+pytestmark = pytest.mark.legacy
 
 
 class TestDispatClassification:

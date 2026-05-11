@@ -28,5 +28,6 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (LLM calls)",
     "llm: marks tests that require LLM API",
+    "legacy: marks tests for deprecated/removed features (classifier, _retry_loop, execute)",
 ]
 pythonpath = ["src"]

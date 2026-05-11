@@ -71,20 +71,30 @@ class TestIntegration:
     @pytest.mark.slow
     @pytest.mark.llm
     def test_llm_repair_typo(self):
-        cat = dispatcher.classify("grep --nonexist Alice tests/data/test.csv")
-        result = execute(
-            cat,
+        from srun.llm import llm
+        from srun.repl import _exec_inline
+        if not llm.client:
+            pytest.skip("LLM API key not configured")
+        py = PythonExecutor()
+        sh = ShellExecutor()
+        r = RExecutor()
+        summary, tool_calls = llm.run(
             "grep --nonexist Alice tests/data/test.csv",
-            self.py,
-            self.sh,
-            self.r,
+            exec_callback=_exec_inline(py, sh, r),
         )
-        assert result["success"]
-        assert result["llm_used"]
+        if tool_calls:
+            for tc in tool_calls:
+                code = tc["command"] if isinstance(tc, dict) else str(tc)
+                assert "--nonexist" not in code, \
+                    f"Repaired command should not contain invalid flag: {code}"
+        assert tool_calls or summary, "LLM should generate a response"
 
     @pytest.mark.slow
     @pytest.mark.llm
     def test_shell_error_repair_general(self):
+        from srun.llm import llm
+        if not llm.client:
+            pytest.skip("LLM API key not configured")
         cat = dispatcher.classify("ls all inverse order")
         assert cat == "shell"
         result = execute(

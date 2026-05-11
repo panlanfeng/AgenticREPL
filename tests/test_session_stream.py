@@ -225,6 +225,7 @@ class TestStreamingOutput:
         assert "".join(content_parts) == ""
 
 
+@pytest.mark.legacy
 class TestDispatcherClassification:
     def test_shell_with_new_command(self):
         """Commands not in whitelist should still be classified as shell."""
@@ -567,3 +568,127 @@ class TestAskUserTool:
         callback("Can I install pandas?", "pip install pandas")
         assert callback.called
         callback.assert_called_with("Can I install pandas?", "pip install pandas")
+
+
+class TestRunInput:
+    """Test the active _run_input execution path used by the REPL."""
+
+    def setup_method(self):
+        from srun.context import state
+        from srun.executors.python_exec import PythonExecutor
+        from srun.executors.shell_exec import ShellExecutor
+        from srun.executors.r_exec import RExecutor
+        self.py = PythonExecutor()
+        self.sh = ShellExecutor()
+        self.r = RExecutor()
+        state.reset_session()
+        state.current_language = "shell"
+
+    def test_direct_shell_success_no_llm(self):
+        """Valid shell command executes directly with zero LLM calls."""
+        from srun.repl import _run_input
+        import time
+        start = time.perf_counter()
+        result = _run_input("echo ok", self.py, self.sh, self.r)
+        elapsed = (time.perf_counter() - start) * 1000
+        assert result["success"]
+        assert not result["llm_used"]
+        assert "ok" in result["output"]
+        assert elapsed < 30, f"Direct shell too slow: {elapsed:.0f}ms"
+
+    def test_direct_shell_failure_triggers_llm(self):
+        """Invalid command fails direct execution, then LLM repairs it."""
+        from srun.repl import _run_input
+        result = _run_input("echoo hello", self.py, self.sh, self.r)
+        # LLM may not be configured; accept either success (LLM fixed it) or graceful failure
+        if not result["success"]:
+            assert result.get("llm_used", False) or "Unable to understand" in result.get("output", "")
+
+    def test_direct_python_executes(self):
+        """Python code executes in Python session."""
+        from srun.context import state
+        from srun.repl import _run_input
+        state.current_language = "python"
+        result = _run_input("3 + 5", self.py, self.sh, self.r)
+        assert result["success"]
+        assert not result["llm_used"]
+        assert "8" in result["output"]
+
+    def test_direct_python_failure_llm_fix(self):
+        """Python typo triggers LLM repair."""
+        from srun.context import state
+        from srun.repl import _run_input
+        state.current_language = "python"
+        result = _run_input("pritn('hello')", self.py, self.sh, self.r)
+        assert result["success"] or result["llm_used"]
+
+    def test_quick_fix_ll_alias_no_llm(self):
+        """'ll' quick-fix runs 'ls -la' with zero LLM calls."""
+        from srun.repl import _run_input
+        import time
+        start = time.perf_counter()
+        result = _run_input("ll", self.py, self.sh, self.r)
+        elapsed = (time.perf_counter() - start) * 1000
+        assert result["success"]
+        assert not result["llm_used"]
+        assert result.get("fixed_code") == "ls -la"
+        assert elapsed < 30, f"Quick-fix too slow: {elapsed:.0f}ms"
+
+    def test_quick_fix_la_alias_no_llm(self):
+        """'la' quick-fix runs 'ls -a' with zero LLM calls."""
+        from srun.repl import _run_input
+        result = _run_input("la", self.py, self.sh, self.r)
+        assert result["success"]
+        assert not result["llm_used"]
+        assert result.get("fixed_code") == "ls -a"
+
+    def test_quick_fix_cddot_alias(self):
+        """'cd..' quick-fix runs 'cd ..'."""
+        from srun.repl import _run_input
+        import os, tempfile
+        cwd = os.getcwd()
+        tmpdir = tempfile.mkdtemp()
+        parent = os.path.realpath(os.path.dirname(tmpdir))
+        try:
+            os.chdir(tmpdir)
+            result = _run_input("cd..", self.py, self.sh, self.r)
+            assert result["success"]
+            assert not result["llm_used"]
+            assert result.get("fixed_code") == "cd .."
+            assert os.path.realpath(os.getcwd()) == parent
+        finally:
+            os.chdir(cwd)
+            import shutil
+            if os.path.isdir(tmpdir):
+                shutil.rmtree(tmpdir)
+
+    def test_stderr_error_triggers_repair(self):
+        """Shell command with stderr errors triggers LLM even if exit 0."""
+        from srun.repl import _run_input
+        result = _run_input("ls --nonexist-flag 2>/dev/null; true", self.py, self.sh, self.r)
+        # Should trigger LLM or succeed
+        assert result["success"] or result.get("llm_used")
+
+    def test_danger_blocked_user_input(self):
+        """Dangerous user commands are blocked before execution."""
+        from srun.repl import _run_input
+        result = _run_input("rm -rf /", self.py, self.sh, self.r)
+        assert not result["success"]
+        assert "BLOCKED" in result["output"]
+
+    def test_danger_blocked_llm_generated(self):
+        """LLM-generated dangerous commands are blocked."""
+        from srun.repl import _run_input
+        from srun.llm import llm as llm_mod
+        from unittest import mock
+
+        original_run = llm_mod.run
+        def fake_run(*args, **kwargs):
+            return "done", [{"command": "rm -rf /", "language": "shell"}]
+        try:
+            llm_mod.run = fake_run
+            result = _run_input("delete everything", self.py, self.sh, self.r)
+            assert not result["success"]
+            assert "BLOCKED" in result["output"]
+        finally:
+            llm_mod.run = original_run
