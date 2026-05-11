@@ -57,7 +57,7 @@ class LLM:
         self._miss_tokens = 0
         self._last_output = ""  # captured output from last inline run_command
 
-    def run(self, user_input, error=None, exec_callback=None):
+    def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
         if not self.client:
             return None, None
 
@@ -188,11 +188,23 @@ class LLM:
                                 content = f"queued: {cmd}"
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                         else:
-                            label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions")
-                            val = list(args.values())[0] if args else ""
-                            print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
-                            result = execute_tool(tc.function.name, args)
-                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                            if tc.function.name == "ask_user" and ask_user_callback:
+                                question = args.get("question", "")
+                                details = args.get("details", "")
+                                response = ask_user_callback(question, details)
+                                content = f"User response: {response}"
+                                if response.lower() in ("no", "n", "cancel", "deny", "refuse"):
+                                    content += "\nUser denied. Do NOT proceed with this action. Try an alternative approach."
+                                elif response.lower() in ("yes", "y", "ok", "proceed", "allow", "approve"):
+                                    content += "\nUser approved. You may proceed with the action."
+                                print(f"\033[2m  → asking user: {question} → {response}\033[0m", flush=True)
+                            else:
+                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions").replace("ask_user", "requesting confirmation")
+                                val = list(args.values())[0] if args else ""
+                                print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
+                                result = execute_tool(tc.function.name, args)
+                                content = result
+                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                     state.log_conversation(messages)
                     self._maybe_compact()
                     if not exec_callback:

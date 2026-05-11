@@ -352,10 +352,29 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": "Ask the user for permission or confirmation before performing an action (e.g., installing packages, running potentially dangerous commands, modifying files). Use this for any action that requires user consent.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The question to ask the user, e.g. 'Can I install pandas with pip?'"},
+                    "details": {"type": "string", "description": "Additional context: what command will be run, why it's needed, any risks or alternatives"},
+                },
+                "required": ["question"],
+            },
+        },
+    },
 ]
 
 def _run_command(command):
     return f"Command queued: {command}"
+
+
+def ask_user(question, details=""):
+    return f"ask_user is not available. Do NOT proceed without user approval. Treat this as denial."
 
 
 TOOL_HANDLERS = {
@@ -367,6 +386,7 @@ TOOL_HANDLERS = {
     "run_command": _run_command,
     "check_repo_info": check_repo_info,
     "check_command_versions": check_command_versions,
+    "ask_user": ask_user,
 }
 
 

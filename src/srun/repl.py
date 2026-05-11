@@ -118,6 +118,7 @@ def main():
     sh_exec = ShellExecutor()
     r_exec = RExecutor()
     state.reset_session()
+    state._load_conversation_state()  # restore context from previous session
 
     print(LOGO)
     if llm.client:
@@ -186,6 +187,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         user_input,
         error=output if not success else (rest[0] if rest else ""),
         exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
+        ask_user_callback=_ask_user_inline(),
     )
     if tool_calls:
         first = tool_calls[0]
@@ -505,6 +507,24 @@ def _exec_inline(py_exec, sh_exec, r_exec):
     return _do
 
 
+def _ask_user_inline():
+    """Callback for llm.run() to ask user for permission interactively."""
+    def _do(question, details=""):
+        print()
+        if details:
+            print(f"\033[1;33m?\033[0m \033[1m{question}\033[0m")
+            print(f"  \033[2m{details}\033[0m")
+        else:
+            print(f"\033[1;33m?\033[0m \033[1m{question}\033[0m")
+        print("  [y/N] ", end="", flush=True)
+        try:
+            answer = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        return "yes" if answer in ("y", "yes") else "no"
+    return _do
+
+
 def execute(category, user_input, py_exec, sh_exec, r_exec):
     EXEC_MAP = {
         "shell": (sh_exec, "shell"),
@@ -528,7 +548,7 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop(user_input, sh_exec, "shell")
 
-    summary, tool_calls = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec))
+    summary, tool_calls = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec), ask_user_callback=_ask_user_inline())
     if tool_calls is None and summary is None:
         if not llm.client and any(kw in user_input.lower() for kw in ("api key", "api_key", "configure", "setup api", "set up llm")):
             _print_config_help()

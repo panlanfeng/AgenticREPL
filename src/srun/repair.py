@@ -1,6 +1,23 @@
 import re
 from .llm import llm
 
+
+def _ask_user(question, details=""):
+    """Ask user for permission in repair mode."""
+    print()
+    if details:
+        print(f"\033[1;33m?\033[0m \033[1m{question}\033[0m")
+        print(f"  \033[2m{details}\033[0m")
+    else:
+        print(f"\033[1;33m?\033[0m \033[1m{question}\033[0m")
+    print("  [y/N] ", end="", flush=True)
+    try:
+        answer = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"
+    return "yes" if answer in ("y", "yes") else "no"
+
+
 QUICK_FIXES = [
     (r"^ll$", "ls -la"),
     (r"^la$", "ls -a"),
@@ -26,7 +43,7 @@ class Repairer:
         quick = apply_quick_fix(original_input, error_message)
         if quick:
             return quick, None
-        summary, tool_calls = llm.run(original_input, error=error_message)
+        summary, tool_calls = llm.run(original_input, error=error_message, ask_user_callback=_ask_user)
         if tool_calls and len(tool_calls) > 0:
             tc = tool_calls[0]
             if isinstance(tc, dict):

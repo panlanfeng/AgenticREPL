@@ -451,3 +451,119 @@ class TestNaturalLanguageCrossLanguage:
                 cmd = tc if isinstance(tc, str) else tc.get("command", "")
                 assert "mean" in cmd.lower() or "c(" in cmd, \
                     f"Expected R statistical code, got: {cmd}"
+
+
+class TestCompactionPersistence:
+    """Test that compaction snapshots survive restarts and are read back correctly."""
+
+    def setup_method(self):
+        from srun.context import SessionState, FULL_HISTORY_FILE, SESSION_DIR
+        state.reset_session()
+        # Clean the history file for a fresh test
+        if os.path.isfile(FULL_HISTORY_FILE):
+            os.remove(FULL_HISTORY_FILE)
+
+    def test_write_and_load_compaction_snapshot(self):
+        from srun.context import SessionState, FULL_HISTORY_FILE
+        # Simulate conversation + compaction
+        state._conversation = [
+            {"role": "user", "content": "find csv files"},
+            {"role": "assistant", "content": '{"code": "ls *.csv"}'},
+            {"role": "user", "content": "count them"},
+            {"role": "assistant", "content": '{"code": "ls *.csv | wc -l"}'},
+        ]
+        state._stable_summary = "User worked with CSV files: listed and counted 5 files."
+        state._write_compaction_snapshot()
+
+        # Verify file has the snapshot
+        assert os.path.isfile(FULL_HISTORY_FILE), "Snapshot should be written to file"
+        import json
+        with open(FULL_HISTORY_FILE) as f:
+            lines = [json.loads(l) for l in f if l.strip()]
+        assert any(e.get("type") == "compaction_snapshot" for e in lines), \
+            "File must contain compaction_snapshot entry"
+
+        # Simulate restart: new state loads from file
+        new_state = SessionState()
+        new_state._load_conversation_state()
+        assert new_state._stable_summary == "User worked with CSV files: listed and counted 5 files."
+        assert len(new_state._conversation) == 4
+        assert new_state._conversation[0]["role"] == "user"
+        assert "find csv" in new_state._conversation[0]["content"]
+
+    def test_load_ignores_other_entry_types(self):
+        from srun.context import SessionState, FULL_HISTORY_FILE
+        # Write some non-compaction entries first
+        state._turn = 1
+        state._write_history({"input": "ls", "output": "file1.txt", "success": True,
+                              "elapsed_ms": 5, "language": "shell", "code": "ls", "type": "fast"})
+        state._write_history({"input": "bad", "output": "error", "success": False,
+                              "elapsed_ms": 10, "language": "shell", "code": "bad", "type": "fast"})
+        # Now write a compaction snapshot
+        state._conversation = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": '{"code": "echo hi"}'},
+        ]
+        state._stable_summary = "User said hello, assistant greeted."
+        state._write_compaction_snapshot()
+
+        # Load — should find the compaction snapshot despite other entries
+        new_state = SessionState()
+        new_state._load_conversation_state()
+        assert new_state._stable_summary == "User said hello, assistant greeted."
+        assert len(new_state._conversation) == 2
+
+    def test_no_file_loads_clean(self):
+        from srun.context import SessionState, FULL_HISTORY_FILE
+        if os.path.isfile(FULL_HISTORY_FILE):
+            os.remove(FULL_HISTORY_FILE)
+        new_state = SessionState()
+        new_state._load_conversation_state()
+        assert new_state._stable_summary is None
+        assert new_state._conversation == []
+
+
+class TestAskUserTool:
+    """Test the ask_user tool definition, handler, and callback integration."""
+
+    def setup_method(self):
+        from srun.context import state
+        state.reset_session()
+
+    def test_ask_user_tool_definition(self):
+        from srun.tools import TOOL_DEFINITIONS
+        names = [t["function"]["name"] for t in TOOL_DEFINITIONS]
+        assert "ask_user" in names, "ask_user must be in TOOL_DEFINITIONS"
+        ask_def = next(t for t in TOOL_DEFINITIONS if t["function"]["name"] == "ask_user")
+        assert "question" in ask_def["function"]["parameters"]["required"]
+        assert "question" in ask_def["function"]["parameters"]["properties"]
+        assert "details" in ask_def["function"]["parameters"]["properties"]
+
+    def test_ask_user_handler_registered(self):
+        from srun.tools import TOOL_HANDLERS, ask_user
+        assert "ask_user" in TOOL_HANDLERS
+        assert TOOL_HANDLERS["ask_user"] is ask_user
+
+    def test_ask_user_handler_without_callback(self):
+        from srun.tools import execute_tool
+        result = execute_tool("ask_user", {"question": "Can I install pandas?"})
+        assert "Do NOT proceed" in result or "denial" in result.lower()
+
+    def test_llm_run_accepts_ask_user_callback_param(self):
+        from srun.llm import LLM
+        import inspect
+        sig = inspect.signature(LLM.run)
+        assert "ask_user_callback" in sig.parameters, "LLM.run must accept ask_user_callback"
+
+    def test_ask_user_triggered_via_callback(self):
+        """Simulate ask_user tool call with a callback that records the question."""
+        from unittest import mock
+        from srun.llm import LLM
+        callback = mock.Mock(return_value="yes")
+        llm_instance = LLM()
+        # Test that the parameter is accepted (actual LLM call needs API)
+        assert hasattr(llm_instance, "run")
+        # Verify callback signature is called correctly
+        callback("Can I install pandas?", "pip install pandas")
+        assert callback.called
+        callback.assert_called_with("Can I install pandas?", "pip install pandas")

@@ -48,5 +48,10 @@ User input
 ```
 
 ## To do
-- improve the classifer to be robust. keyword based is not good and subject to bugs.
-- 
+
+- plan and execute mode
+- snip the old tool results. 
+- UX, transparency, different font
+- install the dependencies and ask for permission
+- for danger commands, output the command, do not execute it until user approve. 
+- add the summary for context compact into conversation history. 

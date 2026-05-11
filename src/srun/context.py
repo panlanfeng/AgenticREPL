@@ -261,7 +261,48 @@ class SessionState:
         cutoff = assistant_indices[-6]
         self._stable_summary = summary
         self._conversation = self._conversation[cutoff:]
+        self._write_compaction_snapshot()
         return True
+
+    def _write_compaction_snapshot(self):
+        """Write the current compaction state (summary + conversation) to history file.
+        Appended so the file is a chronological log; on load we read the last snapshot."""
+        import datetime as _datetime
+        record = {
+            "type": "compaction_snapshot",
+            "timestamp": _datetime.datetime.now().isoformat(),
+            "summary": self._stable_summary,
+            "conversation": self._conversation,
+        }
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        with open(FULL_HISTORY_FILE, "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _load_conversation_state(self):
+        """Restore _stable_summary and _conversation from the last compaction snapshot in history."""
+        if not os.path.isfile(FULL_HISTORY_FILE):
+            return
+        # Scan backwards for the last compaction_snapshot
+        best_summary = None
+        best_conversation = []
+        try:
+            with open(FULL_HISTORY_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("type") == "compaction_snapshot":
+                        best_summary = entry.get("summary")
+                        best_conversation = entry.get("conversation", [])
+            if best_summary is not None:
+                self._stable_summary = best_summary
+                self._conversation = best_conversation
+        except Exception:
+            pass
 
     def log_entry(self, **kwargs):
         self._turn += 1
