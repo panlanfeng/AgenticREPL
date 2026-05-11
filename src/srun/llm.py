@@ -112,6 +112,7 @@ class LLM:
 
         messages.append({"role": "user", "content": user_content})
 
+        all_commands = []
         for _ in range(10):
             start = time.perf_counter()
             try:
@@ -161,44 +162,6 @@ class LLM:
                         ))
 
                 if tools and tool_calls:
-                    has_run = any(tc.function.name == "run_command" for tc in tool_calls)
-                    if has_run:
-                        commands = []
-                        msg_content = text
-                        msg_dict = {"role": "assistant", "content": msg_content, "tool_calls": []}
-                        for tc in tool_calls:
-                            tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                            msg_dict["tool_calls"].append(tc_dict)
-                        messages.append(msg_dict)
-                        for tc in tool_calls:
-                            try:
-                                args = json.loads(tc.function.arguments)
-                            except json.JSONDecodeError:
-                                continue
-                            if tc.function.name == "run_command":
-                                cmd = args.get("command", "")
-                                lang = args.get("language", "shell")
-                                if cmd:
-                                    commands.append({"command": cmd, "language": lang})
-                                if exec_callback and cmd:
-                                    ok, out, *_ = exec_callback(cmd, lang)
-                                    self._last_output = out
-                                    out_lines = out.strip().split("\n") if out else []
-                                    if len(out_lines) > 20:
-                                        out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
-                                    content = f"Exit: {'0' if ok else '1'}\n{out[:3000]}"
-                                else:
-                                    content = f"queued: {cmd}"
-                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-                            else:
-                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions")
-                                val = list(args.values())[0] if args else ""
-                                print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
-                                result = execute_tool(tc.function.name, args)
-                                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-                        state.log_conversation(messages)
-                        self._maybe_compact()
-                        return text if text else None, commands if commands else None
                     msg_dict = {"role": "assistant", "content": text, "tool_calls": []}
                     for tc in tool_calls:
                         tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
@@ -209,19 +172,31 @@ class LLM:
                             args = json.loads(tc.function.arguments)
                         except json.JSONDecodeError:
                             continue
-                        label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment")
-                        val = list(args.values())[0] if args else ""
-                        print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
-                        result = execute_tool(tc.function.name, args)
-                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-                    state._conversation.append(msg_dict)
-                    for tc in tool_calls:
-                        try:
-                            args = json.loads(tc.function.arguments)
-                        except json.JSONDecodeError:
-                            continue
-                        result = execute_tool(tc.function.name, args)
-                        state._conversation.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                        if tc.function.name == "run_command":
+                            cmd = args.get("command", "")
+                            lang = args.get("language", "shell")
+                            if cmd:
+                                all_commands.append({"command": cmd, "language": lang})
+                            if exec_callback and cmd:
+                                ok, out, *_ = exec_callback(cmd, lang)
+                                self._last_output = out
+                                out_lines = out.strip().split("\n") if out else []
+                                if len(out_lines) > 20:
+                                    out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
+                                content = f"Exit: {'0' if ok else '1'}\n{out[:3000]}"
+                            else:
+                                content = f"queued: {cmd}"
+                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                        else:
+                            label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions")
+                            val = list(args.values())[0] if args else ""
+                            print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
+                            result = execute_tool(tc.function.name, args)
+                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                    state.log_conversation(messages)
+                    self._maybe_compact()
+                    if not exec_callback:
+                        return text if text else None, all_commands if all_commands else None
                     continue
 
                 summary = text if text else None
@@ -238,14 +213,14 @@ class LLM:
                             lang = args.get("language", "shell")
                             if cmd:
                                 commands.append({"command": cmd, "language": lang})
-                if not commands and summary:
+                if not all_commands and summary:
                     extracted = _extract_command_from_text(summary)
                     if extracted:
                         lang = extracted.get("language") or state.current_language
-                        commands = [{"command": extracted["command"], "language": lang}]
+                        all_commands = [{"command": extracted["command"], "language": lang}]
                 state.log_conversation(messages)
                 self._maybe_compact()
-                return summary, commands if commands else None
+                return summary, all_commands if all_commands else None
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
