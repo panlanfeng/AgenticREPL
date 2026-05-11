@@ -1,27 +1,62 @@
 # AgenticREPL — Make your terminal think for you
 
-**Unify your console and AI agent as one. Talk to your terminal in any grammar, half-formed thoughts, or plain langauge. It figures out what you meant, writes the correct command, runs it, fixes errors without asking, and keeps your sessions alive.**
+AgenticREPL unifies your terminal and AI agent into one. Talk to your terminal in plain language, half-formed thoughts, or any syntax you like. It figures out what you mean, translates it into the correct command, and runs it. Your agent knows what commands you've run, and your terminal knows how to take your instructions to the agent.
 
-**Why not just use a coding agent?** Srun is Most coding agents send every keystroke through an LLM. `ls` takes 2 seconds. Variables, imports, and dataframes die between commands because each runs in a fresh process. `srun` keeps sessions alive. Python and R run as persistent processes — your data, variables, and packages stay loaded. The LLM only intervenes when there's an error or ambiguity. Normal commands does not go to llm and execute at terminal speed: `<10ms` for a regular commands.
+**Why not just use a coding agent?** AgenticREPL puts code execution first and adds no latency unless you have trouble or write in natural language. Regular coding agents send every keystroke through an LLM — heavyweight and slow. We need AI agents that can do end-to-end work, but also agents that execute normally and quietly help only when needed.
+
+For exploratory data analysis in particular, iterative data exploration gives researchers their first intuition about a problem. Some syntax in well-known packages like `dplyr`, `pandas`, or `ggplot2` is too verbose to remember. AgenticREPL lets you explore data in any syntax, or just in plain English. For example, this runs correctly in AgenticREPL's R session: `mtcars.filter(wt>5).mean(X) for X in (gear, carb)`. See more examples below.
+
 
 ```bash
 $ srun
-srun> ls -la                                      # normal shell: zero delay
-srun> 100/4                                       # 25.0
+shell> ls -la                                      # normal shell: zero delay
+shell> 100/4                                       # 25.0
 
-srun> compress the folder myproject into a tar.gz file
-⟳  tar -czf myproject.tar.gz myproject
+shell> compress the folder myproject into a tar.gz file  # No need to remember those tar flags!
+  | tar -czf myproject.tar.gz myproject
 
-srun> find python files modified in last 7 days that contain the word TODO
-⟳  find . -name '*.py' -mtime -7 -exec grep -l 'TODO' {} +
+shell> find python files modified in last 7 days that contain the word TODO
+  | find . -name '*.py' -mtime -7 -exec grep -l 'TODO' {} +
   ./tests/test_synthetic_project.py
 
-srun> count lines in all .py files recursively
-⟳  find . -name '*.py' -type f | xargs wc -l
+shell> count lines in all .py files recursively
+  | find . -name '*.py' -type f | xargs wc -l
 
-srun> r                                           # enter R session
+shell> r                                           # enter R session
+R> load mtcars
+  | data(mtcars)
+  | head(mtcars)
+mpg cyl disp  hp drat    wt  qsec vs am gear carb
+Mazda RX4         21.0   6  160 110 3.90 2.620 16.46  0  1    4    4
+Mazda RX4 Wag     21.0   6  160 110 3.90 2.875 17.02  0  1    4    4
+Datsun 710        22.8   4  108  93 3.85 2.320 18.61  1  1    4    1
+Hornet 4 Drive    21.4   6  258 110 3.08 3.215 19.44  1  0    3    1
+Hornet Sportabout 18.7   8  360 175 3.15 3.440 17.02  0  0    3    2
+Valiant           18.1   6  225 105 2.76 3.460 20.22  1  0    3    1
+
+R> mcars | group by cyl | mean(carb) | sort by carb  # if you don't want to type %>%
+  | library(dplyr); mtcars |>
+  | group_by(cyl) |>
+  | summarise(mean_carb = mean(carb)) |>
+  | arrange(mean_carb)
+# A tibble: 3 × 2
+    cyl mean_carb
+  <dbl>     <dbl>
+1     4      1.55
+2     6      3.43
+3     8      3.5
+
+R> mtcars.filter(wt>5).mean(X) for X in (gear, carb)  # pandas syntax in R
+  | library(dplyr)
+  | for (X in c("gear", "carb")) {
+  |   result <- mtcars |> filter(wt > 5) |> summarise(mean_val = mean(.data[[X]]))
+  |   cat(X, ":", result$mean_val, "\n")
+  | }
+  gear : 3
+  carb : 4
+
 R> filter mtcars where mpg > 20, show mpg and cyl only
-⟳  mtcars[mtcars$mpg > 20, c("mpg", "cyl")]
+  | mtcars[mtcars$mpg > 20, c("mpg", "cyl")]
      mpg cyl
 Mazda RX4      21.0   6
 Mazda RX4 Wag  21.0   6
@@ -33,30 +68,34 @@ Fiat 128       32.4   4
 Honda Civic    30.4   4
 
 R> group mtcars by cyl and gear, count rows, show average mpg
-⟳  mtcars %>% group_by(cyl, gear) %>% summarise(count = n(), avg_mpg = mean(mpg), .groups = "drop")
-     # A tibble: 8 × 4
+  | mtcars %>% group_by(cyl, gear) %>% summarise(count = n(), avg_mpg = mean(mpg), .groups = "drop")
+  # A tibble: 8 × 4
      cyl  gear count avg_mpg
    <dbl> <dbl> <int>   <dbl>
  1     4     3     1    21.5
  2     4     4     8    26.9
  3     4     5     2    28.2
  4     6     3     2    19.8
+ 5     6     4     4    19.8
+ 6     6     5     1    19.7
+ 7     8     3    12    15.0
+ 8     8     5     2    15.4
 
 R> in mtcars, group by cyl, compute mean of mpg, hp and wt, rounded to 1 decimal
-⟳  mtcars %>% group_by(cyl) %>% summarise(across(c(mpg, hp, wt), ~ round(mean(.x), 1)))
-     # A tibble: 3 × 4
-       cyl   mpg    hp    wt
-     <dbl> <dbl> <dbl> <dbl>
-   1     4  26.7  82.6   2.3
-   2     6  19.7 122.    3.1
-   3     8  15.1 209.    4.0
+  | mtcars %>% group_by(cyl) %>% summarise(across(c(mpg, hp, wt), ~ round(mean(.x), 1)))
+  # A tibble: 3 × 4
+    cyl   mpg    hp    wt
+  <dbl> <dbl> <dbl> <dbl>
+1     4  26.7  82.6   2.3
+2     6  19.7 122.    3.1
+3     8  15.1 209.    4.0
 
 R> plot mtcars with mpg on x, hp on y, color points by cyl as factor, add smooth regression line
-⟳  library(ggplot2)
-⟳  ggplot(mtcars, aes(x = mpg, y = hp, color = as.factor(cyl))) +
-⟳    geom_point() +
-⟳    geom_smooth(method = "lm", se = FALSE) +
-⟳    labs(color = "cyl")
+  | library(ggplot2)
+  | ggplot(mtcars, aes(x = mpg, y = hp, color = as.factor(cyl))) +
+  |   geom_point() +
+  |   geom_smooth(method = "lm", se = FALSE) +
+  |   labs(color = "cyl")
 ```
 
 ## How it works
@@ -80,28 +119,19 @@ User input
 ## Error auto-repair
 
 ```bash
-srun> grep --nocolor error /var/log/app.log
-✗ grep: unrecognized option '--nocolor'
-  ⟳ grep error /var/log/app.log
-
-srun> pritn('hello world')
+shell> pritn('hello world')
 ✗ NameError: name 'pritn' is not defined
-  ⟳ print('hello world')
+  | print('hello world')
   hello world
 ```
 
-## SSH remote + file execution
-
-```bash
-srun> ssh admin@prod-server
-admin@prod-server$ find large files in /var/log    # NL works remotely too
-```
+## File execution
 
 ```bash
 $ srun deploy.sh
 ✓ docker build -t app .                         3200ms
 ✗ kubectl apply -f k8s/deploy.yaml                35ms
-  → kubectl apply -f k8s/deployment.yaml          # LLM fixes typo, resumes
+  | kubectl apply -f k8s/deployment.yaml          # LLM fixes typo, resumes
 ✓ kubectl apply -f k8s/deployment.yaml            28ms
 ```
 
@@ -113,7 +143,7 @@ export DEEPSEEK_API_KEY="sk-xxx"
 srun
 ```
 
-No API key? srun still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
+No API key? `srun` still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
 
 ## License
 

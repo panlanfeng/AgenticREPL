@@ -662,9 +662,11 @@ def print_result(result, elapsed_ms):
     if gave_up:
         print(f"\033[2m   {result['summary']}\033[0m")
     if fixed:
-        print(f"\033[1;33m  ┃ {fixed}\033[0m")
+        for line in fixed.split("\n"):
+            print(f"\033[1;33m  | {line}\033[0m")
     if generated:
-        print(f"\033[1;33m  ┃ {generated}\033[0m")
+        for line in generated.split("\n"):
+            print(f"\033[1;33m  | {line}\033[0m")
 
     if output:
         print(output.rstrip())
