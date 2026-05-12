@@ -253,12 +253,20 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "get_command_help",
-            "description": "Get help/man page for a shell command. Use to see available flags and syntax when unsure. Do not assume your generated flags are correct — double-confirm with this tool before running.",
+            "name": "get_context",
+            "description": "Return current environment: OS/arch, shell, PATH, Python/R versions, virtualenv, and git repo state (branch, remote, dirty). Use at session start to understand where you are running.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_command",
+            "description": "Inspect a shell command: show help/man page, installed version, GNU vs BSD flavor, and all PATH entries. Use before running unfamiliar commands to avoid platform-specific flag errors.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Command name, e.g. 'grep', 'sed'"}
+                    "command": {"type": "string", "description": "Command name, e.g. 'grep', 'sed', 'python'"}
                 },
                 "required": ["command"],
             },
@@ -267,22 +275,8 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "search_files",
-            "description": "Search for files matching a pattern in the current project directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "File name or pattern to search for, e.g. '*.csv', 'test*.py'"}
-                },
-                "required": ["pattern"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "read_file",
-            "description": "Read contents of a file. Use to understand file structure, data format, or code.",
+            "description": "Read contents of a file. Use to understand file structure, data format, or code before generating commands.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -296,57 +290,13 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "check_command",
-            "description": "Check which version of a command is installed (GNU vs BSD, version, path). Also checks for GNU alternatives (ggrep, gsed, gawk) on macOS. Use for unfamiliar commands. Many versions and platforms differ — do not assume your generated code is correct, double-confirm with this tool.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Command to check, e.g. 'grep', 'sed', 'python'"}
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_env_info",
-            "description": "Get system environment info: OS, PATH, installed command versions, Python version.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_repo_info",
-            "description": "Check current git repository: branch, remote URL, HEAD SHA, dirty/clean status, and recent commits. Use to understand the project context before generating commands.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_command_versions",
-            "description": "Find all installed versions of a command (e.g., 'python', 'R', 'node') in PATH. Use to check which versions are available before generating version-specific code.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Command to check versions for, e.g. 'python', 'R', 'node'"}
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "run_command",
-            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment. After execution, check the output and decide the next step. Rules: match the current environment language (do not switch). Output directly executable code — no shell wrappers, no escaping. Use real newlines, not escaped \\\\n. Print results directly — raw output IS what the user sees. Do NOT wrap output in JSON.",
+            "description": "Execute a command in the target REPL environment (shell, python, or r). Output is returned raw — print results directly, do not wrap in JSON. After execution, check output and decide next step.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "The command or code to execute"},
-                    "language": {"type": "string", "enum": ["shell", "python", "r"], "description": "Target execution language: 'shell' for shell commands, 'python' for Python code, 'r' for R code. Default to the current environment language if unsure."},
+                    "language": {"type": "string", "enum": ["shell", "python", "r"], "description": "Target language. Match the current environment."},
                 },
                 "required": ["command", "language"],
             },
@@ -356,12 +306,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "ask_user",
-            "description": "Ask the user for permission or confirmation before performing an action. Use this for: installing packages/libraries/software, modifying files (rm, mv, chmod), running commands with sudo or elevated privileges, or any action where you're unsure if the user wants it.",
+            "description": "Ask the user for permission before destructive or privileged actions: installing packages, modifying files (rm, mv, chmod), running sudo, or anything you're unsure about.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {"type": "string", "description": "The question to ask the user, e.g. 'Can I install pandas with pip?'"},
-                    "details": {"type": "string", "description": "Additional context: what command will be run, why it's needed, any risks or alternatives"},
+                    "question": {"type": "string", "description": "The question to ask, e.g. 'Can I install pandas?'"},
+                    "details": {"type": "string", "description": "What command will be run and why"},
                 },
                 "required": ["question"],
             },
@@ -377,16 +327,43 @@ def ask_user(question, details=""):
     return f"ask_user is not available. Do NOT proceed without user approval. Treat this as denial."
 
 
+def inspect_command(command):
+    """Merged: help + version + PATH entries for a command."""
+    parts = []
+    help_text = get_command_help(command)
+    if help_text:
+        parts.append(help_text)
+    version_info = check_command(command)
+    if version_info:
+        parts.append(version_info)
+    versions = check_command_versions(command)
+    if versions and "not found" not in versions.lower():
+        parts.append(versions)
+    return "\n---\n".join(parts) if parts else f"No information found for '{command}'"
+
+
+def get_context():
+    """Merged: env info + repo info."""
+    parts = [get_env_info()]
+    repo = check_repo_info()
+    if repo and repo != "Not a git repository":
+        parts.append(repo)
+    return "\n---\n".join(parts)
+
+
 TOOL_HANDLERS = {
+    "get_context": get_context,
+    "inspect_command": inspect_command,
+    "read_file": read_file,
+    "run_command": _run_command,
+    "ask_user": ask_user,
+    # Legacy tool names preserved for backward compat
     "get_command_help": get_command_help,
     "search_files": search_files,
-    "read_file": read_file,
     "check_command": check_command,
     "get_env_info": get_env_info,
-    "run_command": _run_command,
     "check_repo_info": check_repo_info,
     "check_command_versions": check_command_versions,
-    "ask_user": ask_user,
 }
 
 
