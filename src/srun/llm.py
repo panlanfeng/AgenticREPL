@@ -109,6 +109,7 @@ class LLM:
         messages.append({"role": "user", "content": user_content})
 
         all_commands = []
+        reasoning = False
         for _ in range(10):
             start = time.perf_counter()
             try:
@@ -121,8 +122,7 @@ class LLM:
                 content_parts = []
                 tool_call_data = {}
                 usage = None
-                thinking = False
-                reasoning = False
+                first_content = True
 
                 for chunk in stream:
                     if chunk.usage:
@@ -130,22 +130,18 @@ class LLM:
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if not delta:
                         continue
-                    # Stream reasoning (reasoning models output this before content)
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                         if not reasoning:
                             reasoning = True
                             print("\033[2mReasoning: \033[0m", end="", flush=True)
                         print(delta.reasoning_content, end="", flush=True)
                     if delta.content:
-                        if reasoning and not thinking:
-                            # First content token after reasoning — force newline, then response prefix
-                            print()
-                            print("\033[2mAgent response: \033[0m", end="", flush=True)
-                            thinking = True
-                        elif not thinking:
-                            # First content with no reasoning — just response prefix
-                            thinking = True
-                            print("\033[2mAgent response: \033[0m", end="", flush=True)
+                        if first_content:
+                            first_content = False
+                            if reasoning:
+                                print("\n\033[2mAgent response: \033[0m", end="", flush=True)
+                            else:
+                                print("\033[2mAgent response: \033[0m", end="", flush=True)
                         print(delta.content, end="", flush=True)
                         content_parts.append(delta.content)
                     if delta.tool_calls:
