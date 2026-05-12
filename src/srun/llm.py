@@ -62,17 +62,12 @@ class LLM:
         if not self.client:
             return None, None
 
-        if error:
-            failure_text = (
-                f"The user typed this command: {user_input}\n"
-                f"It failed with this error:\n{error}\n\n"
-                f"Fix the command and run it. Do NOT explain the error — just fix and execute."
-            )
-        else:
-            failure_text = (
-                f"The user typed: {user_input}\n\n"
-                f"Generate the correct command and execute it via run_command."
-            )
+        failure_text = (
+            f"The user typed: {user_input}\n"
+            + (f"It failed with this error:\n{error}\n\n" if error else "\n")
+            + f"Generate the correct command and execute it via run_command.\n"
+            + f"Do NOT explain the error — just fix and execute."
+        )
 
         tools = TOOL_DEFINITIONS + mcp.all_tools()
 
