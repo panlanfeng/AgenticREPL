@@ -254,7 +254,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_command_help",
-            "description": "Get help/man page for a shell command. Use to see available flags and syntax.",
+            "description": "Get help/man page for a shell command. Use to see available flags and syntax when unsure. Do not assume your generated flags are correct — double-confirm with this tool before running.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -297,7 +297,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_command",
-            "description": "Check which version of a command is installed (GNU vs BSD, version, path). Also checks for GNU alternatives (ggrep, gsed, gawk) on macOS. Use when you need to know if flags are compatible or if a GNU version is available.",
+            "description": "Check which version of a command is installed (GNU vs BSD, version, path). Also checks for GNU alternatives (ggrep, gsed, gawk) on macOS. Use for unfamiliar commands. Many versions and platforms differ — do not assume your generated code is correct, double-confirm with this tool.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -341,7 +341,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment. Rules: match the current environment language (do not switch). Output directly executable code — no shell wrappers, no escaping. Use real newlines, not escaped \\\\n. Print results directly — raw output IS what the user sees. Do NOT wrap output in JSON.",
+            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment. After execution, check the output and decide the next step. Rules: match the current environment language (do not switch). Output directly executable code — no shell wrappers, no escaping. Use real newlines, not escaped \\\\n. Print results directly — raw output IS what the user sees. Do NOT wrap output in JSON.",
             "parameters": {
                 "type": "object",
                 "properties": {
