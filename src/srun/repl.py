@@ -42,7 +42,11 @@ try:
     _tab_completer._matches = []
     tab_completer = _tab_completer
     readline.set_completer(_tab_completer)
-    readline.parse_and_bind("tab: complete")
+    # macOS libedit uses different bind syntax than GNU readline
+    try:
+        readline.parse_and_bind("tab: complete")
+    except Exception:
+        readline.parse_and_bind("bind ^I rl_complete")
     readline.parse_and_bind('"\\C-z": "\\C-d"')
 except ImportError:
     pass
