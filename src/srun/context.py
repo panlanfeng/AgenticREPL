@@ -578,7 +578,7 @@ class SessionState:
         state_note = f"\nState: {self.state_path} (session metadata)"
         mem_note = ""
         if os.path.isfile(self._memory_file):
-            mem_note = f"\nMemory: {self._memory_file} (persistent user profile, feedback, project context)"
+            mem_note = f"\nMemory: use read_file to load {self._memory_file} — contains user profile, environment learnings, past corrections"
         return f"{sys_info}\n{ws_info}{api_note}{history_note}{state_note}{mem_note}"
 
     def workspace_context(self):
