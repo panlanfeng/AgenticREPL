@@ -572,8 +572,8 @@ class SessionState:
         api_note = ""
         from .config import config
         if not config.has_llm:
-            api_note = ("\nAPI: No API key configured. To use natural language and repair, set api_key in ~/.srun/user_config.json "
-                        "(or export DEEPSEEK_API_KEY). Tell the user to type 'srun configure-api' or update the config file manually.")
+            api_note = ("\nAPI: No API key configured. Set SRUN_API_KEY environment variable or add api_key to ~/.srun/user_config.json."
+                        " Type /configure for help.")
         history_note = f"\nHistory: {self.full_history_path} (all turns + LLM conversations)"
         state_note = f"\nState: {self.state_path} (session metadata)"
         mem_note = ""

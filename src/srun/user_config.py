@@ -75,18 +75,10 @@ def set(key, value):
 
 def get_api_config():
     """Return (api_key, api_base, api_model) with priority:
-    1. SRUN_API_KEY / SRUN_API_BASE / SRUN_MODEL (provider-agnostic)
-    2. api_key / api_base / api_model in user_config.json
-    3. DEEPSEEK_API_KEY / DEEPSEEK_API_BASE (backward compat)"""
+    1. SRUN_API_KEY / SRUN_API_BASE / SRUN_MODEL env vars
+    2. api_key / api_base / api_model in user_config.json"""
     cfg = load()
-    api_key = (os.environ.get("SRUN_API_KEY", "")
-               or cfg.get("api_key")
-               or os.environ.get("DEEPSEEK_API_KEY", ""))
-    api_base = (os.environ.get("SRUN_API_BASE", "")
-                or cfg.get("api_base")
-                or os.environ.get("DEEPSEEK_API_BASE", "")
-                or "https://api.deepseek.com/v1")
-    api_model = (os.environ.get("SRUN_MODEL", "")
-                 or cfg.get("api_model")
-                 or "deepseek-chat")
+    api_key = os.environ.get("SRUN_API_KEY", "") or cfg.get("api_key", "")
+    api_base = os.environ.get("SRUN_API_BASE", "") or cfg.get("api_base", "")
+    api_model = os.environ.get("SRUN_MODEL", "") or cfg.get("api_model", "")
     return api_key, api_base, api_model

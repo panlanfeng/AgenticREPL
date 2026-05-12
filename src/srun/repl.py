@@ -506,11 +506,12 @@ def _print_config_help():
     print("Configure your API key in ~/.srun/user_config.json:")
     print("  {")
     print('    "api_key": "sk-...",')
-    print('    "api_base": "https://api.openai.com/v1",  // optional, defaults to DeepSeek')
-    print('    "api_model": "gpt-4o"                       // optional, defaults to deepseek-chat')
+    print('    "api_base": "https://api.openai.com/v1",')
+    print('    "api_model": "gpt-4o"')
     print("  }")
     print("")
-    print("Or export DEEPSEEK_API_KEY in your shell for DeepSeek compatibility.")
+    print("Or use environment variables: SRUN_API_KEY, SRUN_API_BASE, SRUN_MODEL")
+    print("Works with any OpenAI-compatible API (DeepSeek, SiliconFlow, Groq, etc.)")
 
 
 def _handle_ssh(command, sh_exec):

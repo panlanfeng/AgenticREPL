@@ -148,7 +148,9 @@ brew install panlanfeng/agenticrepl/agenticrepl
 # Or via pip
 pip install git+https://github.com/panlanfeng/AgenticREPL.git
 
-export DEEPSEEK_API_KEY="sk-xxx"
+export SRUN_API_KEY="sk-xxx"
+export SRUN_API_BASE="https://api.openai.com/v1"  # optional
+export SRUN_MODEL="gpt-4o"                         # optional
 srun                           # verify it's working
 ```
 
