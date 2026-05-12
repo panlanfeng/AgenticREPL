@@ -356,7 +356,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "ask_user",
-            "description": "Ask the user for permission or confirmation before performing an action (e.g., installing packages, running potentially dangerous commands, modifying files). Use this for any action that requires user consent.",
+            "description": "Ask the user for permission or confirmation before performing an action. Use this for: installing packages/libraries/software, modifying files (rm, mv, chmod), running commands with sudo or elevated privileges, or any action where you're unsure if the user wants it.",
             "parameters": {
                 "type": "object",
                 "properties": {
