@@ -521,7 +521,7 @@ def _handle_ssh(command, sh_exec):
 
 
 def _confirm_execution(code, result, sh_exec, py_exec, r_exec):
-    print(f"\033[1;33m  | {code}\033[0m")
+    print(f"\033[1;33m> {code}\033[0m")
     print("\033[2m  [Enter] run  [Ctrl+C] skip\033[0m", end=" ", flush=True)
     try:
         response = input().strip()
@@ -784,10 +784,10 @@ def print_result(result, elapsed_ms):
         print(f"\033[2m   {result['summary']}\033[0m")
     if fixed:
         for line in fixed.split("\n"):
-            print(f"\033[1;33m  | {line}\033[0m")
+            print(f"\033[1;33m> {line}\033[0m")
     if generated:
         for line in generated.split("\n"):
-            print(f"\033[1;33m  | {line}\033[0m")
+            print(f"\033[1;33m> {line}\033[0m")
 
     if output:
         print(output.rstrip())

@@ -66,7 +66,7 @@ class LLM:
             failure_text = (
                 f"The user typed this command: {user_input}\n"
                 f"It failed with this error:\n{error}\n\n"
-                f"Fix the command and execute it via run_command."
+                f"Fix the command and run it. Do NOT explain the error — just fix and execute."
             )
         else:
             failure_text = (
@@ -137,8 +137,7 @@ class LLM:
                     if delta.content:
                         if not thinking:
                             thinking = True
-                            print("\033[2m  ···\033[0m", end="", flush=True)
-                            print("\r\033[K", end="", flush=True)
+                            print("\033[2mAgent response: \033[0m", end="", flush=True)
                         print(delta.content, end="", flush=True)
                         content_parts.append(delta.content)
                     if delta.tool_calls:
