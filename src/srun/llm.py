@@ -110,7 +110,9 @@ class LLM:
 
         all_commands = []
         reasoning = False
-        for _ in range(10):
+        total_tokens = 0
+        MAX_TOKENS = 32000
+        while total_tokens < MAX_TOKENS:
             start = time.perf_counter()
             try:
                 kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 2000, "stream": True}
@@ -160,6 +162,8 @@ class LLM:
                     print(flush=True)
 
                 self._track_usage(usage)
+                if usage and hasattr(usage, "total_tokens"):
+                    total_tokens += usage.total_tokens
 
                 text = "".join(content_parts).strip()
                 tool_calls = []
@@ -260,7 +264,7 @@ class LLM:
                 return None, None
 
         state.log_conversation(messages)
-        return "Tool call limit reached; try a simpler request.", None
+        return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None
 
     def _track_usage(self, usage):
         if usage:
