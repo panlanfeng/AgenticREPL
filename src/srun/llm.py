@@ -208,8 +208,6 @@ class LLM:
                                     result = execute_tool(tc.function.name, args)
                                 content = result
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-                    if exec_callback:
-                        messages.append({"role": "user", "content": "[Check: is the user's task FULLY completed? If YES — stop (no text). If NO — continue with the next step.]"})
                     state.log_conversation(messages)
                     self._maybe_compact()
                     if not exec_callback:
