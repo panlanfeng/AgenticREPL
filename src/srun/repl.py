@@ -793,7 +793,12 @@ def print_result(result, elapsed_ms):
         print(output.rstrip())
 
     if llm:
-        print(f"\033[2m  shell — {elapsed_ms:.0f}ms\033[0m")
+        from .llm import llm as llm_mod
+        s = llm_mod.cache_stats
+        if s["total_tokens"] > 0:
+            print(f"\033[2m  shell — {elapsed_ms:.0f}ms  {s['total_tokens']} tokens  cache {s['rate']:.0%}\033[0m")
+        else:
+            print(f"\033[2m  shell — {elapsed_ms:.0f}ms\033[0m")
     else:
         print(f"\033[2m  {elapsed_ms:.0f}ms\033[0m")
 
