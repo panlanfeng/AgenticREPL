@@ -122,6 +122,7 @@ class LLM:
                 tool_call_data = {}
                 usage = None
                 thinking = False
+                show_response_prefix = True
 
                 for chunk in stream:
                     if chunk.usage:
@@ -129,10 +130,19 @@ class LLM:
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if not delta:
                         continue
+                    # Stream reasoning (reasoning models output this before content)
+                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                        if not thinking:
+                            thinking = True
+                            print("\033[2m  thinking: \033[0m", end="", flush=True)
+                        print(delta.reasoning_content, end="", flush=True)
                     if delta.content:
                         if not thinking:
                             thinking = True
                             print("\033[2mAgent response: \033[0m", end="", flush=True)
+                        elif show_response_prefix:
+                            print("\n\033[2mAgent response: \033[0m", end="", flush=True)
+                            show_response_prefix = False
                         print(delta.content, end="", flush=True)
                         content_parts.append(delta.content)
                     if delta.tool_calls:
