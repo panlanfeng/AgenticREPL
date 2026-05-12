@@ -134,7 +134,7 @@ class LLM:
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                         if not thinking:
                             thinking = True
-                            print("\033[2m  thinking: \033[0m", end="", flush=True)
+                            print("\033[2mReasoning: \033[0m", end="", flush=True)
                         print(delta.reasoning_content, end="", flush=True)
                     if delta.content:
                         if not thinking:
