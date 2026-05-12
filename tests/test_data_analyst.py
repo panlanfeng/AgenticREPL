@@ -920,6 +920,7 @@ class TestDataAnalystWorkflows:
 
     # ---- Python workflow ----
 
+    @pytest.mark.legacy
     def test_workflow_python_create_add_filter_export(self):
         """Dataframe → add column → filter → export."""
         tmp_csv = "/tmp/srun_workflow_py_output.csv"
@@ -1086,6 +1087,7 @@ class TestDataAnalystEdgeCases:
 
     # ---- cd to non-existent directory ----
 
+    @pytest.mark.legacy
     def test_cd_nonexistent_dir(self):
         cat = dispatcher.classify("cd /nonexistent_dir_xyz_123")
         result = _run(cat, "cd /nonexistent_dir_xyz_123", self.py, self.sh, self.r)

@@ -47,6 +47,7 @@ class TestIntegration:
         assert not result["llm_used"]
         assert elapsed < 20, f"Python expression too slow: {elapsed:.0f}ms"
 
+    @pytest.mark.legacy
     def test_shell_error_triggers_repair_flow(self):
         cat = dispatcher.classify("grep --nonexist Alice tests/data/test.csv")
         result = execute(cat, "grep --nonexist Alice tests/data/test.csv", self.py, self.sh, self.r)
@@ -91,6 +92,7 @@ class TestIntegration:
 
     @pytest.mark.slow
     @pytest.mark.llm
+    @pytest.mark.legacy
     def test_shell_error_repair_general(self):
         from srun.llm import llm
         if not llm.client:
