@@ -341,7 +341,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment.",
+            "description": "Execute a command in a specific REPL environment. Set the language field to indicate the target: 'shell', 'python', or 'r'. The command will be immediately executed in that environment. Rules: match the current environment language (do not switch). Output directly executable code — no shell wrappers, no escaping. Use real newlines, not escaped \\\\n. Print results directly — raw output IS what the user sees. Do NOT wrap output in JSON.",
             "parameters": {
                 "type": "object",
                 "properties": {
