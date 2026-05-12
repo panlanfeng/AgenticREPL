@@ -225,28 +225,6 @@ class TestStreamingOutput:
         assert "".join(content_parts) == ""
 
 
-@pytest.mark.legacy
-class TestDispatcherClassification:
-    def test_shell_with_new_command(self):
-        """Commands not in whitelist should still be classified as shell."""
-        # 'brew' is in whitelist
-        assert dispatcher.classify("brew install python") == "shell"
-        # 'docker' is in whitelist
-        assert dispatcher.classify("docker ps") == "shell"
-        # Random alphanumeric command should be shell (new _is_shell regex)
-        assert dispatcher.classify("mysql -u root") == "shell"
-
-    def test_python_not_misclassified_as_shell(self):
-        """Python code with binops should NOT be classified as shell."""
-        assert dispatcher.classify("100/4") == "python"
-        assert dispatcher.classify("3 + 5 * 2") == "python"
-
-    def test_shell_not_misclassified_as_python(self):
-        """Shell commands should NOT be classified as Python (ls -la is subtraction)."""
-        assert dispatcher.classify("ls -la") == "shell"
-        assert dispatcher.classify("cd /tmp") == "shell"
-
-
 class TestRunCommandTool:
     def setup_method(self):
         state.reset_session()

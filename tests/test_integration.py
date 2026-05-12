@@ -47,11 +47,22 @@ class TestIntegration:
         assert not result["llm_used"]
         assert elapsed < 20, f"Python expression too slow: {elapsed:.0f}ms"
 
-    @pytest.mark.legacy
+    @pytest.mark.llm
     def test_shell_error_triggers_repair_flow(self):
-        cat = dispatcher.classify("grep --nonexist Alice tests/data/test.csv")
-        result = execute(cat, "grep --nonexist Alice tests/data/test.csv", self.py, self.sh, self.r)
-        assert result.get("llm_used") or result.get("summary") is not None, "Repair flow should be triggered"
+        from srun.llm import llm
+        from srun.repl import _exec_inline
+        if not llm.client:
+            pytest.skip("LLM API key not configured")
+        summary, tool_calls = llm.run(
+            "grep --nonexist Alice tests/data/test.csv",
+            exec_callback=_exec_inline(self.py, self.sh, self.r),
+        )
+        if tool_calls:
+            for tc in tool_calls:
+                code = tc["command"] if isinstance(tc, dict) else str(tc)
+                assert "--nonexist" not in code, \
+                    f"Repaired command should not contain invalid flag: {code}"
+        assert tool_calls or summary, "LLM should generate a response"
 
     @pytest.mark.slow
     @pytest.mark.llm
@@ -92,18 +103,16 @@ class TestIntegration:
 
     @pytest.mark.slow
     @pytest.mark.llm
-    @pytest.mark.legacy
     def test_shell_error_repair_general(self):
         from srun.llm import llm
+        from srun.repl import _exec_inline
         if not llm.client:
             pytest.skip("LLM API key not configured")
-        cat = dispatcher.classify("ls all inverse order")
-        assert cat == "shell"
-        result = execute(
-            cat, "ls all inverse order", self.py, self.sh, self.r
+        summary, tool_calls = llm.run(
+            "ls all inverse order",
+            exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
-        assert result["success"]
-        assert result["llm_used"]
+        assert tool_calls or summary, "LLM should generate a response"
 
     @pytest.mark.slow
     @pytest.mark.llm

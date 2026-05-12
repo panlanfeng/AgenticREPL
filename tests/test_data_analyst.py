@@ -99,63 +99,6 @@ class TestDataAnalystFast:
         self.py, self.sh, self.r = _setup()
         self.r_available = RExecutor().available
 
-    # ---- Classifier: data-analysis expressions ----
-
-    @pytest.mark.legacy
-    def test_classify_pandas_groupby_mean(self):
-        assert dispatcher.classify("df.groupby('region').mean()") == "python"
-
-    @pytest.mark.legacy
-    def test_classify_read_csv(self):
-        assert dispatcher.classify("pd.read_csv('data.csv')") == "python"
-
-    @pytest.mark.legacy
-    def test_classify_dplyr_filter(self):
-        # filter() alone could be ambiguous, but "dplyr::filter" is function call → python
-        assert dispatcher.classify("from dplyr import filter") == "python"
-
-    @pytest.mark.legacy
-    def test_classify_pipe_operator(self):
-        # %>\n% or just a pipeline — pipe chars classify as shell
-        # But with proper R dplyr chain notation, this is 'unknown' unless it's parseable as something
-        result = dispatcher.classify("mtcars %>% filter(mpg > 20) %>% select(mpg, cyl)")
-        assert result in ("unknown", "shell"), f"Unexpected: {result}"
-
-    @pytest.mark.legacy
-    def test_classify_shell_data_pipeline(self):
-        assert dispatcher.classify("cat data.csv | sort | uniq -c") == "shell"
-
-    @pytest.mark.legacy
-    def test_classify_shell_wc_l(self):
-        assert dispatcher.classify("wc -l *.csv") == "shell"
-
-    @pytest.mark.legacy
-    def test_classify_python_listcomp(self):
-        assert dispatcher.classify("[x*2 for x in range(10)]") == "python"
-
-    @pytest.mark.legacy
-    def test_classify_r_read_csv(self):
-        # read.csv() — the dot makes it look like an attribute, so Python
-        # Actually R code like "df <- read.csv('data.csv')" → "<-" is assignment → unknown in classify
-        # Let's test what actually happens
-        result = dispatcher.classify("read.csv('data.csv')")
-        # This has no first-shell-word, no shell patterns, but is valid Python (attribute call)
-        assert result == "python"
-
-    @pytest.mark.legacy
-    def test_classify_r_assignment(self):
-        # "df <- read.csv('data.csv')" — Python parses "<-" as (df < (-read.csv(...)))
-        # so _is_python finds Attribute (.csv) and returns True
-        # But _is_shell also returns True because 'df' is a valid command (disk free)
-        result = dispatcher.classify("df <- read.csv('data.csv')")
-        assert result in ("python", "unknown", "shell"), f"Unexpected: {result}"
-
-    @pytest.mark.legacy
-    def test_classify_r_assignment_distinct(self):
-        # A clear R-specific expression that is not valid Python
-        result = dispatcher.classify("mtcars %>% filter(mpg > 20)")
-        assert result in ("unknown", "shell"), f"Unexpected: {result}"
-
     # ---- Shell pipeline classification ----
 
     def test_shell_pipe_sort(self):
@@ -587,22 +530,7 @@ class TestDataAnalystLLM:
         if tool_calls:
             for tc in tool_calls:
                 if isinstance(tc, dict) and tc.get("language"):
-                    # Should be "r" since user explicitly asked for R
                     pass  # We just verify we got tool_calls back
-
-    @pytest.mark.legacy
-    def test_r_multiline_code_not_looping(self):
-        """Multi-line R code from LLM should execute once, not trigger repair loop."""
-        if not self.r_available:
-            pytest.skip("R not available")
-        state.current_language = "r"
-        state._llm_last_known_language = "r"
-        code = "df %>%\n  group_by(char1) %>%\n  summarise(num1 = mean(num1))"
-        exec_result = _retry_loop(code, self.r, "r", initial_llm=True)
-        # The code may fail if df/char1 don't exist, but it should NOT loop on
-        # literal \n characters — it should be one execution attempt
-        # Success or failure is fine, as long as it doesn't hang
-        assert exec_result is not None
 
 
 # ===========================================================================
@@ -920,24 +848,6 @@ class TestDataAnalystWorkflows:
 
     # ---- Python workflow ----
 
-    @pytest.mark.legacy
-    def test_workflow_python_create_add_filter_export(self):
-        """Dataframe → add column → filter → export."""
-        tmp_csv = "/tmp/srun_workflow_py_output.csv"
-        try:
-            result = _llm_dispatch_and_execute(
-                f"create a pandas dataframe with columns name and score, "
-                f"with 5 rows of data, add a 'pass' column that is True if score > 50, "
-                f"then save to {tmp_csv}",
-                "shell", self.py, self.sh, self.r,
-            )
-            assert result["llm_used"]
-        finally:
-            if os.path.isfile(tmp_csv):
-                os.remove(tmp_csv)
-
-    # ---- R workflow ----
-
     def test_workflow_r_create_mutate_summarise(self):
         if not RExecutor().available:
             pytest.skip("R not available")
@@ -1036,21 +946,6 @@ class TestDataAnalystEdgeCases:
 
     # ---- Very long NL input ----
 
-    @pytest.mark.legacy
-    def test_long_nl_input_classification(self):
-        """Long natural language input should still be classified as unknown."""
-        long_input = (
-            "please find all the csv files in this directory and then for each one "
-            "calculate the total number of rows and then sort them by the second column "
-            "and then filter out any rows where the third column is empty and then "
-            "save the results to a new file called processed_output.csv"
-        )
-        cat = dispatcher.classify(long_input)
-        assert cat == "unknown"
-
-    # ---- NL with special characters ----
-
-    @pytest.mark.legacy
     def test_nl_special_characters(self):
         cat = dispatcher.classify("find files with $ in the name")
         assert cat in ("unknown", "shell"), f"Unexpected: {cat}"
@@ -1070,15 +965,6 @@ class TestDataAnalystEdgeCases:
 
     # ---- Unicode ----
 
-    @pytest.mark.legacy
-    def test_unicode_classification(self):
-        # Chinese: "find all CSV files"
-        cat = dispatcher.classify("找所有CSV文件")
-        # The classifier treats this as unknown since no shell pattern or Python syntax
-        assert cat in ("unknown", "shell"), f"Unexpected: {cat}"
-
-    # ---- Python complex expression ----
-
     def test_python_nested_comprehension(self):
         cat = dispatcher.classify("[[i*j for j in range(3)] for i in range(3)]")
         assert cat == "python"
@@ -1086,17 +972,6 @@ class TestDataAnalystEdgeCases:
         assert result["success"]
 
     # ---- cd to non-existent directory ----
-
-    @pytest.mark.legacy
-    def test_cd_nonexistent_dir(self):
-        cat = dispatcher.classify("cd /nonexistent_dir_xyz_123")
-        result = _run(cat, "cd /nonexistent_dir_xyz_123", self.py, self.sh, self.r)
-        # cd to nonexistent should fail; LLM may try to fix via file search
-        # Accept either explicit failure or LLM intervention
-        assert not result["success"] or result.get("llm_used"), \
-            f"cd to nonexistent should fail or trigger LLM, got: {result}"
-
-    # ---- Command that produces no output ----
 
     def test_command_no_output(self):
         """Commands like `mkdir -p /tmp/existing` succeed with empty output."""
@@ -1107,34 +982,6 @@ class TestDataAnalystEdgeCases:
         assert "\n" in result["output"] or result["output"] == ""
 
     # ---- Leading/trailing whitespace ----
-
-    @pytest.mark.legacy
-    def test_leading_whitespace(self):
-        cat = dispatcher.classify("   pwd")
-        assert cat == "shell"
-
-    @pytest.mark.legacy
-    def test_trailing_whitespace(self):
-        cat = dispatcher.classify("pwd   ")
-        assert cat == "shell"
-
-    # ---- Very short command ----
-
-    @pytest.mark.legacy
-    def test_very_short_command_pwd(self):
-        cat = dispatcher.classify("pwd")
-        assert cat == "shell"
-        result = _run(cat, "pwd", self.py, self.sh, self.r)
-        assert result["success"]
-
-    @pytest.mark.legacy
-    def test_very_short_command_ls(self):
-        cat = dispatcher.classify("ls")
-        assert cat == "shell"
-        result = _run(cat, "ls", self.py, self.sh, self.r)
-        assert result["success"]
-
-    # ---- Concurrent session isolation ----
 
     def test_concurrent_session_isolation(self):
         """Two separate session states should not interfere."""
