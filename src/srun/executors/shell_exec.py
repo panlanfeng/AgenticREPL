@@ -6,6 +6,24 @@ import shlex
 
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
+_TTY_COMMANDS = {"less", "more", "vim", "vi", "nano", "emacs", "top", "htop",
+                  "man", "git", "ssh", "tmux", "screen", "watch", "htop"}
+
+
+def _needs_tty(command):
+    """Check if command needs a real terminal (interactive, pagers, editors)."""
+    base = command.strip().split()[0]
+    # Full match for exact commands
+    if base in _TTY_COMMANDS:
+        return True
+    # git subcommands that need pager: log, diff, show, blame
+    if base == "git":
+        parts = command.strip().split()
+        if len(parts) > 1 and parts[1] in ("log", "diff", "show", "blame", "reflog"):
+            return True
+    # man requires a specific section number, e.g. "man 3 printf"
+    return False
+
 
 def _build_env():
     env = os.environ.copy()
@@ -75,6 +93,13 @@ class ShellExecutor:
         stripped = code.strip()
         if self._ssh_prefix:
             code = f"{self._ssh_prefix} {shlex.quote(stripped)}"
+
+        # Interactive commands need direct terminal access, not capture
+        if _needs_tty(stripped):
+            rc = subprocess.call(stripped, shell=True, executable=self.shell,
+                                 cwd=os.getcwd(), env=self.env)
+            return rc == 0, "", "", 0 if rc == 0 else rc
+
         try:
             result = subprocess.run(
                 code,
