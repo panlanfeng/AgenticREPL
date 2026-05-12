@@ -64,9 +64,9 @@ class LLM:
 
         failure_text = (
             f"The user typed: {user_input}\n"
-            + (f"It failed with this error:\n{error}\n\n" if error else "\n")
-            + f"Generate the correct command and execute it via run_command.\n"
-            + f"Do NOT explain the error — just fix and execute."
+            + (f"The returned error:\n{error}\n\n" if error else "\n")
+            + f"Generate the correct command and execute it via run_command with no explaination."
+            #+ f"Do NOT explain the error — just fix and execute."
         )
 
         tools = TOOL_DEFINITIONS + mcp.all_tools()

@@ -206,17 +206,16 @@ class SessionState:
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
-        if self._stable_summary:
-            messages.append({"role": "user", "content": f"[Summary of earlier conversation]\n{self._stable_summary}"})
         if os.path.isfile(self._memory_file):
             with open(self._memory_file) as f:
                 mem = f.read()
             if mem.strip():
                 messages.append({"role": "user", "content": f"[Persistent memory — use this to personalize responses]\n{mem}"})
-        # Load AGENTS.md — global user instructions (always-on, user-written)
         agents_md = self._load_agents_md()
         if agents_md:
             messages.append({"role": "user", "content": f"[AGENTS.md — user instructions]\n{agents_md}"})
+        if self._stable_summary:
+            messages.append({"role": "user", "content": f"[Summary of earlier conversation]\n{self._stable_summary}"})
         from .skills import get_skill_prompts
         skill_prompts = get_skill_prompts()
         if skill_prompts:
