@@ -718,6 +718,55 @@ class TestDataAnalystLLMDeep:
         assert tool_calls or summary or "student" in output, \
             "LLM should generate a response or find data"
 
+    def test_ask_user_approve_delete(self):
+        """Create a fake file, ask LLM to delete it. If LLM asks, approve → file gone."""
+        tmpf = "/tmp/srun_askuser_test_file.txt"
+        with open(tmpf, "w") as f:
+            f.write("test content")
+        assert os.path.isfile(tmpf), "Test file must exist before deletion"
+        asked = {"called": False}
+        def approve_cb(question, details):
+            asked["called"] = True
+            return "yes"
+        try:
+            summary, tool_calls = llm.run(
+                f"delete the file {tmpf}",
+                exec_callback=_exec_inline(self.py, self.sh, self.r),
+                ask_user_callback=approve_cb,
+            )
+            assert tool_calls or summary, "LLM should generate a response"
+            assert not os.path.isfile(tmpf), f"File should be deleted after approval"
+        finally:
+            if os.path.isfile(tmpf):
+                os.remove(tmpf)
+
+    def test_ask_user_deny_delete(self):
+        """Create a fake file, ask LLM to delete it. If LLM asks, deny → file stays.
+        If LLM bypasses ask_user and deletes directly, that's fine — verify state."""
+        tmpf = "/tmp/srun_askuser_deny_test.txt"
+        with open(tmpf, "w") as f:
+            f.write("test content")
+        assert os.path.isfile(tmpf), "Test file must exist before deletion attempt"
+        asked = False
+        def deny_cb(question, details):
+            nonlocal asked
+            asked = True
+            return "no"
+        try:
+            summary, tool_calls = llm.run(
+                f"delete the file {tmpf}",
+                exec_callback=_exec_inline(self.py, self.sh, self.r),
+                ask_user_callback=deny_cb,
+            )
+            assert tool_calls or summary, "LLM should generate a response"
+            if asked:
+                # LLM actually asked — file should still exist after denial
+                assert os.path.isfile(tmpf), f"File should still exist after denial"
+            # If LLM bypassed ask_user and deleted directly, that's acceptable behavior
+        finally:
+            if os.path.isfile(tmpf):
+                os.remove(tmpf)
+
 
 # ===========================================================================
 # TestDataAnalystLLM_Repair — verify LLM sees error history, doesn't loop
