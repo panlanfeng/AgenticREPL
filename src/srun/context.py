@@ -206,11 +206,6 @@ class SessionState:
 
     def build_conversation_messages(self, system_prompt):
         messages = [{"role": "system", "content": system_prompt}]
-        if os.path.isfile(self._memory_file):
-            with open(self._memory_file) as f:
-                mem = f.read()
-            if mem.strip():
-                messages.append({"role": "user", "content": f"[Persistent memory — use this to personalize responses]\n{mem}"})
         agents_md = self._load_agents_md()
         if agents_md:
             messages.append({"role": "user", "content": f"[AGENTS.md — user instructions]\n{agents_md}"})
