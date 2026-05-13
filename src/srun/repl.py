@@ -296,6 +296,9 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             "summary": summary,
         }
     if summary:
+        # If summary contains an LLM error, show it directly
+        if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget")):
+            return {"success": False, "output": summary, "llm_used": False, "language": lang}
         return {"success": True, "output": "", "llm_used": True, "language": "text"}
     return {
         "success": False,

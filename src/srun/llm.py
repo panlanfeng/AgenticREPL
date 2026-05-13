@@ -60,7 +60,7 @@ class LLM:
 
     def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
         if not self.client:
-            return None, None
+            return "No LLM configured — set SRUN_API_KEY or add api_key to ~/.srun/user_config.json", None
 
         failure_text = (
             f"The user typed: {user_input}\n"
@@ -253,7 +253,7 @@ class LLM:
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages)
-                return None, None
+                return f"LLM response error: {e}", None
             except Exception as e:
                 err_msg = str(e).lower()
                 if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
@@ -261,7 +261,7 @@ class LLM:
                     continue
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages)
-                return None, None
+                return f"LLM error: {e}", None
 
         state.log_conversation(messages)
         return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None
