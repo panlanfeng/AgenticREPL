@@ -1,0 +1,27 @@
+{
+  "name": "Messy Sales Cleanup",
+  "persona": "Junior analyst asked to prepare sales data for a quarterly report. Knows there's a CSV somewhere but unsure about data quality. Not confident with technical terms — uses words like 'messy', 'weird', 'looks wrong'.",
+  "hidden_goal": "Agent must find the sales CSV, identify and fix all data quality issues (missing values, duplicate rows, inconsistent date formats, non-numeric revenue values, missing region entries), and produce a clean summary of what was fixed.",
+  "setup": {
+    "files": {
+      "sales.csv": "date,product,revenue,region\n2024-01-01,A,1000,East\n2024-01-02,B,,West\n2024-01-01,A,1000,East\nJan 3 2024,C,twelve hundred,East\n2024-01-04,D,1500,\n2024-01-05,E,800,North\n2024-01-05,E,800,North\n2024-01-06,F,999.99,West\n"
+    }
+  },
+  "script": [
+    {"hint": "Express that you need to prepare sales data for a report but don't know where to start"},
+    {"hint": "Ask the agent to look at the file and check if anything looks wrong"},
+    {"hint": "Ask what specific problems were found — push for a list"},
+    {"hint": "Ask the agent to fix the issues it found"},
+    {"hint": "Ask if there's anything else that might be wrong — missing values or weird numbers"},
+    {"hint": "Ask specifically about the revenue numbers — are they all valid?"},
+    {"hint": "Ask about duplicate rows — are there any?"},
+    {"hint": "After fixes, ask to see a clean summary of what was fixed"},
+    {"hint": "Ask about date formatting consistency"},
+    {"hint": "Express satisfaction and wrap up"}
+  ],
+  "success": {
+    "grade_5": "All issues found and fixed: missing revenue value, duplicate rows, inconsistent date format (Jan 3 2024), non-numeric revenue ('twelve hundred'), missing region. Clean summary produced showing what was fixed.",
+    "grade_3": "Most issues found but 1-2 missed (e.g., missed the duplicate row or the date format inconsistency). Some fixes applied.",
+    "grade_1": "File loaded but no data quality issues identified, or agent couldn't find the file, or gave up."
+  }
+}

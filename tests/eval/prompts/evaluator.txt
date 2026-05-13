@@ -1,0 +1,19 @@
+Grade this AI agent session on a scale of 1-5.
+
+HIDDEN GOAL (what the agent should have achieved):
+{hidden_goal}
+
+SUCCESS CRITERIA:
+{success_criteria}
+
+FULL TRANSCRIPT:
+{transcript}
+
+RUBRIC:
+5 — Complete: Hidden goal fully achieved, all subtasks done. Agent was proactive and efficient.
+4 — Strong: Goal achieved with minor gaps (e.g., no visualization but all analysis done).
+3 — Adequate: Core task done but significant gaps (e.g., correct analysis but no summary).
+2 — Partial: Some progress but incomplete or wrong approach.
+1 — Minimal: Agent attempted but failed to make meaningful progress. Wrong dataset, wrong commands, or gave up.
+
+Return ONLY a JSON object: {{"score": N, "reasoning": "..."}}
