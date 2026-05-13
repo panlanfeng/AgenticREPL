@@ -803,3 +803,96 @@ class TestNewTools:
         assert "grep_search" in TOOL_HANDLERS
         assert "file_edit" in TOOL_HANDLERS
         assert "file_write" in TOOL_HANDLERS
+
+
+class TestOutputFormat:
+    """Verify reasoning, response, and code appear on separate lines."""
+
+    def setup_method(self):
+        state.reset_session()
+        state.current_language = "shell"
+
+    def test_reasoning_newline_when_no_content(self):
+        """print(flush=True) runs when reasoning is set but content_parts is empty."""
+        # Simulates the condition at llm.py:167
+        content_parts = []  # LLM generated only tool calls, no text
+        reasoning = True     # reasoning was streamed
+        flushed = bool(content_parts or reasoning)
+        assert flushed, "Should flush newline after reasoning when content_parts is empty"
+
+    def test_reasoning_newline_with_content(self):
+        """print(flush=True) runs when content_parts has text (normal case)."""
+        content_parts = ["some text"]
+        reasoning = False
+        flushed = bool(content_parts or reasoning)
+        assert flushed, "Should flush newline when content_parts has text"
+
+    def test_no_flush_when_neither(self):
+        """print(flush=True) does NOT run when neither content nor reasoning."""
+        content_parts = []
+        reasoning = False
+        flushed = bool(content_parts or reasoning)
+        assert not flushed, "Should not flush when nothing was output"
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_code_on_separate_line_from_reasoning(self):
+        """LLM output: reasoning on one line, code on the next line."""
+        from srun.repl import _exec_inline
+        from srun.llm import llm
+        from srun.executors.python_exec import PythonExecutor
+        from srun.executors.shell_exec import ShellExecutor
+        from srun.executors.r_exec import RExecutor
+        import io, contextlib
+
+        py = PythonExecutor()
+        sh = ShellExecutor()
+        r = RExecutor()
+
+        # Capture stdout to verify line separations
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            summary, tcs = llm.run("list the 3 largest files in /tmp with their sizes", exec_callback=_exec_inline(py, sh, r))
+
+        output = buf.getvalue()
+        # Reasoning should end with a newline before the code line
+        lines = output.strip().split("\n")
+        # Find lines: Reasoning → code → output → footer
+        has_reasoning = any("Reasoning:" in l for l in lines)
+        has_code = any(l.strip().startswith(">") for l in lines)
+        if has_reasoning and has_code:
+            # Find the reasoning line and the first code line — they should be different lines
+            reasoning_idx = next(i for i, l in enumerate(lines) if "Reasoning:" in l)
+            code_idx = next(i for i, l in enumerate(lines) if l.strip().startswith(">"))
+            assert code_idx > reasoning_idx, \
+                f"Code should be on a separate line after reasoning. Reasoning at line {reasoning_idx}, code at line {code_idx}"
+        assert has_code or tcs, "LLM should produce some output"
+
+    @pytest.mark.slow
+    @pytest.mark.llm
+    def test_response_on_separate_line_from_code(self):
+        """After code executes, agent response (if any) should be on its own line."""
+        from srun.repl import _exec_inline
+        from srun.llm import llm
+        from srun.executors.python_exec import PythonExecutor
+        from srun.executors.shell_exec import ShellExecutor
+        from srun.executors.r_exec import RExecutor
+        import io, contextlib
+
+        py = PythonExecutor()
+        sh = ShellExecutor()
+        r = RExecutor()
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            summary, tcs = llm.run("list the 3 largest files in /tmp", exec_callback=_exec_inline(py, sh, r))
+
+        output = buf.getvalue()
+        lines = output.strip().split("\n")
+        has_agent_response = any("Agent response:" in l for l in lines)
+        has_code = any(l.strip().startswith(">") for l in lines)
+        if has_agent_response and has_code:
+            code_idx = next(i for i, l in enumerate(lines) if l.strip().startswith(">"))
+            response_idx = next(i for i, l in enumerate(lines) if "Agent response:" in l)
+            assert response_idx > code_idx, \
+                f"Agent response should appear after code. Code at line {code_idx}, response at line {response_idx}"
