@@ -197,7 +197,9 @@ class LLM:
                                 all_commands.append({"command": cmd, "language": lang})
                             if exec_callback and cmd:
                                 ok, out, *_ = exec_callback(cmd, lang)
-                                self._last_output = out
+                                if self._last_output:
+                                    self._last_output += "\n"
+                                self._last_output += out.strip() if out else ""
                                 out_lines = out.strip().split("\n") if out else []
                                 if len(out_lines) > 20:
                                     out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
