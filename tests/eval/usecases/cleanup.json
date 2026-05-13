@@ -1,27 +1,25 @@
 {
-  "name": "Messy Sales Cleanup",
-  "persona": "Junior analyst asked to prepare sales data for a quarterly report. Knows there's a CSV somewhere but unsure about data quality. Not confident with technical terms — uses words like 'messy', 'weird', 'looks wrong'.",
-  "hidden_goal": "Agent must find the sales CSV, identify and fix all data quality issues (missing values, duplicate rows, inconsistent date formats, non-numeric revenue values, missing region entries), and produce a clean summary of what was fixed.",
+  "name": "Time Series Resampling & Rolling Averages",
+  "persona": "Analyst working with daily sensor data. Knows basic Python/pandas concepts but struggles with datetime operations, resampling, and rolling windows. Writes partially correct code that needs fixing.",
+  "hidden_goal": "Agent must load sensor.csv, parse dates, resample to weekly frequency computing mean temperature, compute a 7-day rolling average of humidity, identify the week with the highest mean temperature, and produce a clear summary.",
   "setup": {
     "files": {
-      "sales.csv": "date,product,revenue,region\n2024-01-01,A,1000,East\n2024-01-02,B,,West\n2024-01-01,A,1000,East\nJan 3 2024,C,twelve hundred,East\n2024-01-04,D,1500,\n2024-01-05,E,800,North\n2024-01-05,E,800,North\n2024-01-06,F,999.99,West\n"
+      "data/sensor.csv": "date,temperature,humidity\n2024-01-01,22.5,45\n2024-01-02,23.1,48\n2024-01-03,21.8,52\n2024-01-04,24.0,41\n2024-01-05,25.2,38\n2024-01-06,26.1,35\n2024-01-07,24.8,40\n2024-01-08,23.5,44\n2024-01-09,22.0,50\n2024-01-10,21.3,55\n2024-01-11,23.8,42\n2024-01-12,25.5,37\n2024-01-13,26.8,33\n2024-01-14,24.2,39\n2024-01-15,22.7,46\n2024-01-16,21.9,51\n2024-01-17,23.4,43\n2024-01-18,25.0,38\n2024-01-19,26.3,34\n2024-01-20,24.6,36\n2024-01-21,23.0,42\n"
     }
   },
   "script": [
-    {"hint": "Express that you need to prepare sales data for a report but don't know where to start"},
-    {"hint": "Ask the agent to look at the file and check if anything looks wrong"},
-    {"hint": "Ask what specific problems were found — push for a list"},
-    {"hint": "Ask the agent to fix the issues it found"},
-    {"hint": "Ask if there's anything else that might be wrong — missing values or weird numbers"},
-    {"hint": "Ask specifically about the revenue numbers — are they all valid?"},
-    {"hint": "Ask about duplicate rows — are there any?"},
-    {"hint": "After fixes, ask to see a clean summary of what was fixed"},
-    {"hint": "Ask about date formatting consistency"},
-    {"hint": "Express satisfaction and wrap up"}
+    {"hint": "You have sensor data with daily readings. You need to analyze it. Ask the agent to load and peek at the file first."},
+    {"hint": "You need to resample this to weekly totals. You tried 'df.resample('W')' but got an error about the index not being datetime. Ask for help."},
+    {"hint": "After fixing the weekly resample, ask for the mean temperature per week."},
+    {"hint": "You also need a rolling 7-day average of humidity. You're not sure which function to use — mention you've heard of .rolling() but don't know the syntax."},
+    {"hint": "Ask which week had the highest average temperature."},
+    {"hint": "Ask to see the trend — is temperature generally going up or down over this period?"},
+    {"hint": "Put all of this together in a clean summary — the weekly data, rolling average, hottest week, and trend."},
+    {"hint": "Express satisfaction. This is exactly what you needed."}
   ],
   "success": {
-    "grade_5": "All issues found and fixed: missing revenue value, duplicate rows, inconsistent date format (Jan 3 2024), non-numeric revenue ('twelve hundred'), missing region. Clean summary produced showing what was fixed.",
-    "grade_3": "Most issues found but 1-2 missed (e.g., missed the duplicate row or the date format inconsistency). Some fixes applied.",
-    "grade_1": "File loaded but no data quality issues identified, or agent couldn't find the file, or gave up."
+    "grade_5": "sensor.csv loaded, date column parsed to datetime, weekly resample with mean temp computed, 7-day rolling avg of humidity computed, hottest week identified, trend analyzed, clear summary with all findings produced.",
+    "grade_3": "Data loaded and some analysis done but resample or rolling avg has errors, or index not properly set as datetime, or summary incomplete.",
+    "grade_1": "File loaded but no resampling or rolling computation performed."
   }
 }

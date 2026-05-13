@@ -249,8 +249,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Evaluate srun agent with synthetic user")
-    parser.add_argument("--usecase", choices=["explorer", "cleanup", "revenue", "all"],
-                        default="explorer", help="Use case to evaluate")
+    parser.add_argument("--usecase", choices=["sales", "join", "sensor", "all"],
+                        default="sales", help="Use case to evaluate")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs per use case")
     parser.add_argument("--rounds", type=int, default=10, help="Max rounds per run")
     args = parser.parse_args()

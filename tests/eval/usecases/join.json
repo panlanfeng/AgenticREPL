@@ -1,0 +1,26 @@
+{
+  "name": "Multi-file Join & Aggregation",
+  "persona": "Business analyst who knows basic R/dplyr syntax but gets stuck on joins and aggregations. Writes partial code with errors.",
+  "hidden_goal": "Agent must load orders.csv and customers.csv, join them on customer_id, compute total order_value per country, filter for orders placed in 2024, sort descending, and produce a summary of top 5 countries.",
+  "setup": {
+    "files": {
+      "data/orders.csv": "order_id,customer_id,order_date,order_value\n101,C001,2024-01-15,150\n102,C002,2024-02-20,300\n103,C001,2024-03-10,200\n104,C003,2024-04-05,450\n105,C002,2024-05-12,180\n106,C004,2024-06-01,220\n107,C001,2024-07-18,350\n108,C005,2023-12-10,500\n109,C003,2024-08-22,120\n110,C002,2024-09-30,280\n",
+      "data/customers.csv": "customer_id,name,country,signup_date\nC001,Acme Corp,USA,2023-06-01\nC002,Globex Inc,UK,2023-08-15\nC003,Initech,USA,2024-01-10\nC004,Umbrella Corp,Germany,2023-11-20\nC005,Stark Industries,UK,2022-05-30\n"
+    }
+  },
+  "script": [
+    {"hint": "You have order data and customer data in the data folder. You need to combine them somehow. Mention you tried 'orders %>% left_join(customers)' but got an error."},
+    {"hint": "Ask the agent to look at both files first and check if the join key is right."},
+    {"hint": "The join worked but you need to group by country and sum up the order values. Ask how to do that."},
+    {"hint": "You only want orders from 2024. Ask how to filter. You tried 'filter(order_date > 2024)' but it didn't work."},
+    {"hint": "Ask to sort the results so the highest-spending country is first."},
+    {"hint": "Ask to show just the top 5 countries."},
+    {"hint": "Ask for a clean summary of what was found — which countries spend the most."},
+    {"hint": "Express satisfaction. This is exactly what you needed."}
+  ],
+  "success": {
+    "grade_5": "Both CSVs loaded, joined correctly on customer_id, filtered to 2024 orders, grouped by country with total order_value, sorted descending, top 5 shown (USA: $1220, UK: $760, Germany: $220). Clean summary provided.",
+    "grade_3": "Join performed but filter or group by step has errors, or correct join key not identified, or summary incomplete.",
+    "grade_1": "Files loaded but no meaningful join or aggregation performed."
+  }
+}
