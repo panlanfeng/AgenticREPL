@@ -289,10 +289,11 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         gen_code = first["command"] if isinstance(first, dict) else str(first)
         return {
             "success": True,
-            "output": "",  # output now embedded in generated_code pairs
+            "output": "",
             "llm_used": True, "language": lang,
-            "generated_code": tool_calls if len(tool_calls) > 0 else None,
+            "generated_code": None,  # shown inline during llm.run()
             "summary": summary,
+            "agent_text": llm._agent_text,
         }
     if summary:
         # If summary contains an LLM error, show it directly
@@ -795,22 +796,14 @@ def print_result(result, elapsed_ms):
     if fixed:
         for line in fixed.split("\n"):
             print(f"\033[1;32m> {line}\033[0m")
-    if generated:
-        if isinstance(generated, list):
-            for item in generated:
-                code = item["command"] if isinstance(item, dict) else str(item)
-                for line in code.split("\n"):
-                    print(f"\033[1;32m> {line}\033[0m")
-                out = item.get("output", "") if isinstance(item, dict) else ""
-                if out:
-                    print(out.rstrip())
-        else:
-            for line in str(generated).split("\n"):
-                print(f"\033[1;32m> {line}\033[0m")
 
     output = result.get("output", "")
     if output:
         print(output.rstrip())
+
+    agent_text = result.get("agent_text", "")
+    if agent_text:
+        print(agent_text, flush=True)
 
     if llm:
         from .llm import llm as llm_mod

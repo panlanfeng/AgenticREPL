@@ -57,6 +57,7 @@ class LLM:
         self._hit_tokens = 0
         self._miss_tokens = 0
         self._last_output = ""  # captured output from last inline run_command
+        self._agent_text = ""    # captured agent text for display ordering
 
     def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
         if not self.client:
@@ -146,10 +147,10 @@ class LLM:
                         if first_content:
                             first_content = False
                             if reasoning:
-                                print("\n\033[2mAgent response: \033[0m", end="", flush=True)
+                                self._agent_text = "\n\033[2mAgent response: \033[0m"
                             else:
-                                print("\033[2mAgent response: \033[0m", end="", flush=True)
-                        print(delta.content, end="", flush=True)
+                                self._agent_text = "\033[2mAgent response: \033[0m"
+                        self._agent_text += delta.content
                         content_parts.append(delta.content)
                     if delta.tool_calls:
                         for tc in delta.tool_calls:
@@ -199,6 +200,12 @@ class LLM:
                                 ok, out, *_ = exec_callback(cmd, lang)
                                 if all_commands:
                                     all_commands[-1]["output"] = out.strip() if out else ""
+                                # Print code + output inline (natural interleaved order)
+                                for line in cmd.split("\n"):
+                                    print(f"\033[1;32m> {line}\033[0m")
+                                stripped_out = out.strip() if out else ""
+                                if stripped_out:
+                                    print(stripped_out)
                                 out_lines = out.strip().split("\n") if out else []
                                 if len(out_lines) > 20:
                                     out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
