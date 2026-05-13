@@ -361,7 +361,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
             elif lang == "r":
                 prompt = _rl_prompt("\033[1;34mR>\033[0m ")
             elif sh_exec.remote:
-                prompt = f"{sh_exec.remote}\n{_rl_prompt('\033[1;32mshell>\033[0m ')}"
+                prompt = _rl_prompt(f"{sh_exec.remote}\n\033[1;32mshell>\033[0m ")
             else:
                 cwd = os.getcwd()
                 home = os.path.expanduser("~")
@@ -369,7 +369,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
                     cwd = "~" + cwd[len(home):]
                 parts = cwd.rstrip("/").split("/")
                 display = "/".join(parts[-2:]) if len(parts) > 2 else cwd
-                prompt = f"\033[2m{display}\033[0m {_rl_prompt('\033[1;32mshell>\033[0m ')}"
+                prompt = _rl_prompt(f"\033[2m{display}\033[0m \033[1;32mshell>\033[0m ")
             user_input = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
