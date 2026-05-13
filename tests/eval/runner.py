@@ -6,6 +6,7 @@ import sys
 import tempfile
 import shutil
 import statistics
+import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
@@ -22,6 +23,34 @@ from .grader import grade
 _USER_AGENT_PROMPT = open(
     os.path.join(os.path.dirname(__file__), "prompts", "user_agent.txt")
 ).read()
+
+_REFLECTION_PROMPT = """You are reviewing an AI agent's performance. Analyze the transcript below.
+
+TRANSCRIPT:
+{transcript}
+
+HIDDEN GOAL: {hidden_goal}
+FINAL SCORE: {score}/5
+
+Write a structured review with these sections:
+
+## What went well
+- Specific things the agent did correctly.
+- Approaches or patterns that should be remembered and repeated.
+
+## What went wrong
+- Specific mistakes, context losses, wrong datasets, failed commands.
+- Root causes — WHY did these things go wrong?
+
+## What to improve
+- Concrete, actionable changes that would prevent the failures seen.
+- E.g., prompt changes, tool additions, architecture fixes, test additions.
+- Be specific: reference exact rounds and behaviors from the transcript.
+
+## Key takeaways
+- 1-2 sentences summarizing the most important lesson from this run.
+
+Keep the review under 300 words. Be direct and actionable."""
 
 
 def load_usecase(name):
@@ -42,7 +71,7 @@ def setup_workspace(usecase):
 
 
 def run_one(usecase, rounds):
-    """Run a single evaluation round. Returns (score, reasoning, raw_transcript)."""
+    """Run a single evaluation round. Returns (score, reasoning, review, clean_transcript_list, raw_transcript)."""
     clean_transcript_list = []
     raw_transcript = []
 
@@ -60,7 +89,6 @@ def run_one(usecase, rounds):
             step = usecase["script"][i]
             hint = step["hint"]
 
-            # Build user prompt with conversation context
             ctx = format_transcript(clean_transcript_list)
             prompt_text = _USER_AGENT_PROMPT.format(
                 persona=usecase["persona"],
@@ -70,18 +98,15 @@ def run_one(usecase, rounds):
                 hint=hint,
             )
 
-            # Get synthetic user message
             user_msg, _ = llm.run(prompt_text)
             if not user_msg:
-                user_msg = hint  # fallback
+                user_msg = hint
 
-            # Send to srun agent
             summary, commands = llm.run(
                 user_msg,
                 exec_callback=_exec_inline(py, sh, r),
             )
 
-            # Record turn
             clean = clean_transcript(
                 i + 1,
                 user_msg,
@@ -93,12 +118,11 @@ def run_one(usecase, rounds):
             raw_transcript.append({
                 "round": i + 1,
                 "prompt": user_msg,
-                "commands": commands,
+                "commands": [c if isinstance(c, str) else c.get("command", "") for c in (commands or [])],
                 "output": llm._last_output,
                 "agent_text": getattr(llm, "_agent_text", ""),
             })
 
-            # Check if agent finished (no more commands, task seems done)
             if i >= 3 and not commands and summary:
                 break
     finally:
@@ -107,13 +131,69 @@ def run_one(usecase, rounds):
 
     # Grade
     transcript_text = format_transcript(clean_transcript_list)
-    success_key = "grade_5"  # use grade_5 as the success description
+    success_key = "grade_5"
     score, reasoning = grade(
         usecase["hidden_goal"],
         usecase["success"].get(success_key, "Complete task"),
         transcript_text,
     )
-    return score, reasoning, raw_transcript
+
+    # Reflection report
+    review = _generate_review(transcript_text, usecase["hidden_goal"], score)
+
+    return score, reasoning, review, clean_transcript_list, raw_transcript
+
+
+def _generate_review(transcript_text, hidden_goal, score):
+    """Generate a structured review of the agent's performance."""
+    if not llm.client:
+        return "No LLM client configured for review generation."
+    try:
+        from srun.config import config
+        prompt = _REFLECTION_PROMPT.format(
+            transcript=transcript_text,
+            hidden_goal=hidden_goal,
+            score=score,
+        )
+        kwargs = {"model": config.model, "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.0, "max_tokens": 600, "stream": False}
+        resp = llm.client.chat.completions.create(**kwargs)
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Review generation failed: {e}"
+
+
+def save_trajectory(usecase_name, run_num, score, reasoning, review,
+                     clean_transcript_list, raw_transcript):
+    """Save trajectory + report to the output directory."""
+    out_dir = os.path.join(os.path.dirname(__file__), "output")
+    os.makedirs(out_dir, exist_ok=True)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = f"{usecase_name}_run{run_num}_{timestamp}"
+
+    # Save full report
+    report = {
+        "usecase": usecase_name,
+        "run": run_num,
+        "timestamp": timestamp,
+        "score": score,
+        "reasoning": reasoning,
+        "review": review,
+        "rounds": len(clean_transcript_list),
+    }
+    with open(os.path.join(out_dir, f"{base}_report.json"), "w") as f:
+        json.dump(report, f, indent=2)
+
+    # Save clean transcript (LLM-readable)
+    with open(os.path.join(out_dir, f"{base}_transcript.json"), "w") as f:
+        json.dump(clean_transcript_list, f, indent=2)
+
+    # Save raw transcript (debug)
+    with open(os.path.join(out_dir, f"{base}_raw.json"), "w") as f:
+        json.dump(raw_transcript, f, indent=2)
+
+    return os.path.join(out_dir, f"{base}_report.json")
 
 
 def evaluate(usecase_name, runs=5, rounds=10):
@@ -121,6 +201,7 @@ def evaluate(usecase_name, runs=5, rounds=10):
     usecase = load_usecase(usecase_name)
     scores = []
     reasonings = []
+    reports = []
 
     print(f"\n{'='*60}")
     print(f"Evaluating: {usecase['name']}")
@@ -129,11 +210,16 @@ def evaluate(usecase_name, runs=5, rounds=10):
 
     for run in range(runs):
         print(f"\n--- Run {run + 1}/{runs} ---")
-        score, reasoning, transcript = run_one(usecase, rounds)
+        score, reasoning, review, clean_t, raw_t = run_one(usecase, rounds)
         scores.append(score)
         reasonings.append(reasoning)
+
+        report_path = save_trajectory(
+            usecase_name, run + 1, score, reasoning, review, clean_t, raw_t
+        )
+        reports.append(report_path)
         print(f"Score: {score}/5 — {reasoning[:100]}...")
-        # Reset LLM state between runs
+        print(f"Saved: {report_path}")
         state.reset_session()
 
     avg = statistics.mean(scores)
@@ -146,6 +232,7 @@ def evaluate(usecase_name, runs=5, rounds=10):
         print(f"  Run {i + 1}: {s}/5 — {r}")
     print(f"\n  Average: {avg:.1f}/5 (±{stdev:.1f})")
     print(f"  Scores: {scores}")
+    print(f"  Reports: {reports}")
 
     return {
         "usecase": usecase_name,
@@ -154,6 +241,7 @@ def evaluate(usecase_name, runs=5, rounds=10):
         "average": avg,
         "stdev": stdev,
         "reasonings": reasonings,
+        "reports": reports,
     }
 
 
