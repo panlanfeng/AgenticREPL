@@ -92,7 +92,7 @@ def run_one(usecase, rounds):
             ctx = format_transcript(clean_transcript_list)
             prompt_text = _USER_AGENT_PROMPT.format(
                 persona=usecase["persona"],
-                hidden_goal=usecase["hidden_goal"],
+                task_context=usecase.get("task_context", usecase["hidden_goal"]),
                 transcript=ctx if ctx else "(no conversation yet)",
                 round_num=i + 1,
                 hint=hint,

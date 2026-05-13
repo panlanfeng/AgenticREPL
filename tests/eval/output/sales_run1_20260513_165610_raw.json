@@ -1,0 +1,31 @@
+[
+  {
+    "round": 1,
+    "prompt": "Express that you need help cleaning sales data for a quarterly report. You have trouble with dollar signs in the revenue column.",
+    "commands": [
+      "python3 -c \"\nimport pandas as pd\ndf = pd.DataFrame({'date': ['2024-01-15','2024-02-20','2024-03-10'], 'revenue': ['$1,200.50','$3,400.00','$2,750.75']})\nprint('Raw data with dollar signs:')\nprint(df)\nprint()\nprint('Revenue dtype:', df['revenue'].dtype)\nprint()\ndf['revenue_clean'] = df['revenue'].replace('[\\$,]', '', regex=True).astype(float)\nprint('Cleaned data:')\nprint(df)\nprint()\nprint('Revenue_clean dtype:', df['revenue_clean'].dtype)\nprint('Total revenue: $' + format(df['revenue_clean'].sum(), ',.2f'))\n\"",
+      "python3 -c \"\nimport pandas as pd\ndf = pd.DataFrame({'date': ['2024-01-15','2024-02-20','2024-03-10'], 'revenue': ['\\$1,200.50','\\$3,400.00','\\$2,750.75']})\nprint('Raw data with dollar signs:')\nprint(df)\nprint()\ndf['revenue_clean'] = df['revenue'].replace(r'[\\$,]', '', regex=True).astype(float)\nprint('Cleaned data:')\nprint(df)\nprint()\nprint('Total revenue: \\$' + format(df['revenue_clean'].sum(), ',.2f'))\n\""
+    ],
+    "output": "",
+    "agent_text": "\n\u001b[2mAgent response: \u001b[0mI need help cleaning sales data for a quarterly report. The revenue column has dollar signs and commas (e.g., `$1,200.50`) that prevent numeric operations. The fix is stripping `$` and `,` using `.replace(r'[\\$,]', '', regex=True).astype(float)`, converting the column from string to float so aggregation like `.sum()` works correctly."
+  },
+  {
+    "round": 2,
+    "prompt": "Ask the agent to look at the file first and check what needs cleaning. If agent can't find the file, tell them it's at data/sales_q4.csv.",
+    "commands": [],
+    "output": "",
+    "agent_text": "\n\u001b[2mAgent response: \u001b[0mHere's what I found in `data/sales_q4.csv` that needs cleaning:\n\n1. **Out-of-range date**: Row with `2024-09-15` is Q3, not Q4\n2. **Missing product**: Row with empty product value (`2024-10-10,,$700,West`)\n3. **Missing region**: Row with empty region (`2024-11-20,F,$2800,`)\n4. **Revenue as string**: Revenue column has `$` prefix \u2014 should be numeric for analysis"
+  },
+  {
+    "round": 3,
+    "prompt": "Can you go ahead and get rid of those rows with missing product names or empty regions? And while you're at it, clean up those dollar signs in the revenue column too.",
+    "commands": [
+      "ls -la",
+      "ls -la data/",
+      "python3 << 'EOF'\nimport pandas as pd\n\ndf = pd.read_csv(\"data/sales_q4.csv\")\ndf = df.dropna(subset=[\"product\", \"region\"])\ndf = df[df[\"product\"].str.strip() != \"\"]\ndf = df[df[\"region\"].str.strip() != \"\"]\ndf[\"revenue\"] = df[\"revenue\"].str.replace(\"$\", \"\", regex=False).astype(int)\ndf.to_csv(\"data/sales_q4.csv\", index=False)\nprint(df.to_string(index=False))\nEOF",
+      "import pandas as pd\n\ndf = pd.read_csv(\"data/sales_q4.csv\")\ndf = df.dropna(subset=[\"product\", \"region\"])\ndf = df[df[\"product\"].str.strip() != \"\"]\ndf = df[df[\"region\"].str.strip() != \"\"]\ndf[\"revenue\"] = df[\"revenue\"].str.replace(\"$\", \"\", regex=False).astype(int)\ndf.to_csv(\"data/sales_q4.csv\", index=False)\nprint(df.to_string(index=False))"
+    ],
+    "output": "",
+    "agent_text": "\n\u001b[2mAgent response: \u001b[0mDone. Removed 2 rows (one with missing product name, one with empty region) and stripped the `$` from the revenue column, converting it to integers."
+  }
+]

@@ -1,24 +1,25 @@
 {
   "name": "Sales Pipeline Cleanup",
   "persona": "Data analyst preparing quarterly sales data. Knows basic pandas but struggles with data cleaning operations. Uses a mix of natural language and broken code.",
-  "hidden_goal": "Agent must load sales.csv, clean the data (remove $ signs from revenue, fix dates, remove null region rows), filter to Q4 2024 (Oct-Dec), group by region and product to compute total revenue, sort by revenue descending, and export the cleaned result to a new CSV.",
+  "hidden_goal": "Agent must load the sales CSV from the data folder, clean it (remove $ signs from revenue, remove rows with missing product or region), filter to Q4 2024 (Oct-Dec), group by region and product to compute total revenue, sort by revenue descending, and export to sales_report.csv.",
+  "task_context": "The user has a CSV at data/sales_q4.csv with columns: date, product, revenue, region. Revenue column has literal $ signs ('$1000') that need stripping. Some rows have empty product names or empty regions — those should be removed. A row from September should be excluded (only want Oct-Dec). The user needs: (1) load data/sales_q4.csv, (2) clean $ signs and remove bad rows, (3) filter to Oct-Dec 2024 dates, (4) group by region + product, sum revenue, (5) sort descending, (6) export to sales_report.csv.",
   "setup": {
     "files": {
       "data/sales_q4.csv": "date,product,revenue,region\n2024-10-01,A,$1000,East\n2024-10-02,B,$2500,West\n2024-10-05,A,$800,East\n2024-11-01,C,$3200,North\n2024-11-15,B,$1500,West\n2024-12-01,D,$4200,East\n2024-09-15,E,$900,South\n2024-12-20,A,$1100,East\n2024-10-10,,$700,West\n2024-11-20,F,$2800,\n"
     }
   },
   "script": [
-    {"hint": "Express that you need help cleaning sales data for a quarterly report. Mention that revenue has dollar signs and you can't figure out how to remove them."},
-    {"hint": "Ask the agent to load the file and show you what's in it first."},
-    {"hint": "Point out that there are some weird rows — missing product names and empty regions. Ask if those should be removed."},
-    {"hint": "You need only Q4 (October-December). Ask the agent to filter for those months. You tried 'df[df.date > Oct]' but it didn't work."},
-    {"hint": "Ask the agent to group by region and product and compute total revenue. You're not sure how to do the grouping."},
-    {"hint": "Ask to sort it so the highest revenue comes first. You think sort_values() is the right function but aren't sure about ascending."},
-    {"hint": "Ask the agent to save the final cleaned result to a new CSV file called 'sales_report.csv'."},
-    {"hint": "Express satisfaction — that's exactly what you needed for the report."}
+    {"hint": "Express that you need help cleaning sales data for a quarterly report. You have trouble with dollar signs in the revenue column."},
+    {"hint": "Ask the agent to look at the file first and check what needs cleaning. If agent can't find the file, tell them it's at data/sales_q4.csv."},
+    {"hint": "There are rows with missing product names and empty regions. Ask the agent to identify and remove those."},
+    {"hint": "You need only Q4 (October-December). There's a September row that shouldn't be there. Ask how to filter by date — you tried something like filter by month but couldn't get it working."},
+    {"hint": "Ask to group by region and product and compute total revenue. You're not sure how to do the grouping and summing together."},
+    {"hint": "Ask to sort by revenue so the highest comes first."},
+    {"hint": "Ask to save the final cleaned result to a new CSV called sales_report.csv."},
+    {"hint": "Express satisfaction — this is exactly what you needed for the report."}
   ],
   "success": {
-    "grade_5": "sales.csv loaded, $ signs removed from revenue, null product/region rows removed, filtered to Oct-Dec 2024, grouped by region+product, total revenue computed, sorted descending, exported to sales_report.csv with correct data.",
+    "grade_5": "data/sales_q4.csv loaded, $ signs removed from revenue, rows with missing product or region removed, filtered to Oct-Dec 2024 (Sep row excluded), grouped by region+product, total revenue computed and sorted descending, exported to sales_report.csv. All analysis correct.",
     "grade_3": "Most cleaning done but missed one step (e.g., didn't remove null rows, or wrong date filter, or didn't export).",
     "grade_1": "Data loaded but no meaningful cleaning or transformation performed."
   }

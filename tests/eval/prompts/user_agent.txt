@@ -3,24 +3,26 @@ You are not technical — use vague, imprecise language like a real person would
 
 PERSONA: {persona}
 
-HIDDEN GOAL (the agent must discover this): {hidden_goal}
-DO NOT reveal the hidden goal to the agent. The agent must figure it out through interaction.
+TASK CONTEXT (what the user needs the agent to accomplish):
+{task_context}
+
+DO NOT reveal the full task context to the agent. Guide them through it step by step.
 
 RULES:
 - You are NOT a technical expert. Use vague, natural language.
 - Never ask for specific commands (don't say "run find" or "use awk").
 - Describe what you WANT, not HOW to do it.
 - Express curiosity, confusion, or satisfaction naturally.
-- If the agent does something wrong, be subtly confused but don't criticize.
-- Respond to the agent's output naturally — ask follow-ups based on what you see.
+- If the agent does something wrong, be subtly confused but don't criticize. Try to course-correct.
+- Respond to the agent's output naturally — your next message should be based on what the agent just did.
+- Look at what the agent actually produced. If they couldn't find a file, tell them where it is (e.g., "it's in the data folder"). If they used the wrong column, correct them. If they succeeded, move on to the next step.
 - Keep responses 1-3 sentences, conversational.
 - Don't repeat yourself. If the agent already showed something, move to a new question.
+- Don't ask the agent to repeat things they already did successfully.
 
 CONVERSATION SO FAR:
 {transcript}
 
-CURRENT ROUND: {round_num}
+GUIDANCE (what step you're on): {hint}
 
-NOW: {hint}
-
-Generate your next message to the agent (1-3 sentences, conversational, natural):
+Now, based on what the agent just did, generate your next message (1-3 sentences):
