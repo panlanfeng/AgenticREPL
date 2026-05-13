@@ -317,6 +317,53 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep_search",
+            "description": "Search file contents for a regex pattern. Uses ripgrep (rg) if available, grep as fallback. Returns matching lines with file paths and line numbers. Use to find code, function definitions, imports, or any content across the project.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Regex pattern to search for, e.g. 'def main', 'import pandas', 'TODO'"},
+                    "path": {"type": "string", "description": "Directory or file to search in (default: current directory)"},
+                    "context_lines": {"type": "integer", "description": "Lines of context around each match (default: 2)"},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_edit",
+            "description": "Replace a string in a file. The old_string must be unique — provide enough surrounding text to identify the exact occurrence. If multiple matches exist, add more context lines to make it unique.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path to the file to edit"},
+                    "old_string": {"type": "string", "description": "The exact text to replace (must match exactly, including whitespace)"},
+                    "new_string": {"type": "string", "description": "The replacement text"},
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_write",
+            "description": "Create or overwrite a file with new content. Use to write new files or completely replace existing ones.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path to the file to write"},
+                    "content": {"type": "string", "description": "The full content to write to the file"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
 ]
 
 def _run_command(command):
@@ -351,12 +398,78 @@ def get_context():
     return "\n---\n".join(parts)
 
 
+def file_write(path, content):
+    """Create or overwrite a file with the given content."""
+    resolved = os.path.expanduser(path)
+    if not os.path.isabs(resolved):
+        resolved = os.path.join(os.getcwd(), resolved)
+    os.makedirs(os.path.dirname(resolved) or ".", exist_ok=True)
+    try:
+        with open(resolved, "w", encoding="utf-8") as f:
+            f.write(content)
+        size = os.path.getsize(resolved)
+        return f"Wrote {size} bytes to {resolved}"
+    except Exception as e:
+        return f"Error writing {resolved}: {e}"
+
+
+def file_edit(path, old_string, new_string):
+    """Replace old_string with new_string in a file. First exact match only."""
+    resolved = os.path.expanduser(path)
+    if not os.path.isabs(resolved):
+        resolved = os.path.join(os.getcwd(), resolved)
+    if not os.path.isfile(resolved):
+        return f"File not found: {resolved}"
+    try:
+        with open(resolved, "r", encoding="utf-8") as f:
+            content = f.read()
+        count = content.count(old_string)
+        if count == 0:
+            return f"No match found for the given old_string in {resolved}"
+        if count > 1:
+            return f"Found {count} matches — old_string must be unique. Provide more context to make it unique."
+        content = content.replace(old_string, new_string, 1)
+        with open(resolved, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Replaced 1 occurrence in {resolved}"
+    except Exception as e:
+        return f"Error editing {resolved}: {e}"
+
+
+def grep_search(pattern, path=".", context_lines=2):
+    """Search file contents for a pattern. Uses rg if available, grep as fallback."""
+    resolved = os.path.expanduser(path)
+    if not os.path.isabs(resolved):
+        resolved = os.path.join(os.getcwd(), resolved)
+    rg = shutil.which("rg")
+    cmd = [rg or "grep", "-rn", "--color=never"]
+    if rg:
+        cmd.extend(["-C", str(context_lines)])
+    else:
+        cmd.extend(["-C", str(context_lines)])
+    cmd.extend([pattern, resolved])
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15, cwd=os.getcwd())
+        out = r.stdout.strip()
+        if not out:
+            return f"No matches for '{pattern}' in {resolved}"
+        lines = out.split("\n")
+        if len(lines) > 30:
+            out = "\n".join(lines[:30]) + f"\n... ({len(lines)} total matches)"
+        return _redact_secrets(resolved, out)
+    except Exception as e:
+        return f"Error searching: {e}"
+
+
 TOOL_HANDLERS = {
     "get_context": get_context,
     "inspect_command": inspect_command,
     "read_file": read_file,
     "run_command": _run_command,
     "ask_user": ask_user,
+    "grep_search": grep_search,
+    "file_edit": file_edit,
+    "file_write": file_write,
     # Legacy tool names preserved for backward compat
     "get_command_help": get_command_help,
     "search_files": search_files,
