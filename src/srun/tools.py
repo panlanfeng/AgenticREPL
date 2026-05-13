@@ -442,12 +442,11 @@ def grep_search(pattern, path=".", context_lines=2):
     if not os.path.isabs(resolved):
         resolved = os.path.join(os.getcwd(), resolved)
     rg = shutil.which("rg")
-    cmd = [rg or "grep", "-rn", "--color=never"]
     if rg:
-        cmd.extend(["-C", str(context_lines)])
+        cmd = [rg, "--color=never", "-C", str(context_lines), pattern, resolved]
     else:
-        cmd.extend(["-C", str(context_lines)])
-    cmd.extend([pattern, resolved])
+        # macOS BSD grep: avoid -n with -C (strips match text). Use -nH alone, or -R alone with -C
+        cmd = ["grep", "-rnH", "--color=never", pattern, resolved]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=15, cwd=os.getcwd())
         out = r.stdout.strip()

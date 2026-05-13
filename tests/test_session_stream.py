@@ -671,3 +671,135 @@ class TestRunInput:
             assert "BLOCKED" in result["output"]
         finally:
             llm_mod.run = original_run
+
+
+class TestNewTools:
+    """Tests for file_write, file_edit, grep_search tools."""
+
+    def setup_method(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    # ── file_write ────────────────────────────────────────────────
+
+    def test_file_write_creates_file(self):
+        from srun.tools import file_write
+        import os
+        path = os.path.join(self.tmpdir, "test.txt")
+        result = file_write(path, "hello world\nline 2\n")
+        assert "Wrote" in result
+        assert os.path.isfile(path)
+        with open(path) as f:
+            assert f.read() == "hello world\nline 2\n"
+
+    def test_file_write_overwrites(self):
+        from srun.tools import file_write
+        import os
+        path = os.path.join(self.tmpdir, "overwrite.txt")
+        file_write(path, "old content")
+        file_write(path, "new content")
+        with open(path) as f:
+            assert f.read() == "new content"
+
+    def test_file_write_creates_dirs(self):
+        from srun.tools import file_write
+        import os
+        path = os.path.join(self.tmpdir, "a", "b", "c", "deep.txt")
+        file_write(path, "deep")
+        assert os.path.isfile(path)
+
+    # ── file_edit ─────────────────────────────────────────────────
+
+    def test_file_edit_single_match(self):
+        from srun.tools import file_write, file_edit
+        import os
+        path = os.path.join(self.tmpdir, "edit.txt")
+        file_write(path, "hello world\nline 2\nbye world\n")
+        result = file_edit(path, "hello world", "HELLO EARTH")
+        assert "Replaced 1 occurrence" in result
+        with open(path) as f:
+            content = f.read()
+        assert "HELLO EARTH" in content
+        assert "hello world" not in content
+
+    def test_file_edit_multiple_matches(self):
+        from srun.tools import file_write, file_edit
+        import os
+        path = os.path.join(self.tmpdir, "multi.txt")
+        file_write(path, "hello\nworld\nhello\n")
+        result = file_edit(path, "hello", "hi")
+        assert "Found 2 matches" in result
+
+    def test_file_edit_no_match(self):
+        from srun.tools import file_write, file_edit
+        import os
+        path = os.path.join(self.tmpdir, "nomatch.txt")
+        file_write(path, "hello world\n")
+        result = file_edit(path, "zzzzzz", "xxx")
+        assert "No match found" in result
+
+    def test_file_edit_unique_with_context(self):
+        from srun.tools import file_write, file_edit
+        import os
+        path = os.path.join(self.tmpdir, "context.txt")
+        file_write(path, "hello\nworld\nhello\n")
+        result = file_edit(path, "world\nhello", "WORLD\nHELLO")
+        assert "Replaced 1 occurrence" in result
+
+    def test_file_edit_nonexistent_file(self):
+        from srun.tools import file_edit
+        result = file_edit("/tmp/nonexistent_srun_edit_test_xyz.txt", "a", "b")
+        assert "File not found" in result
+
+    def test_file_edit_exact_whitespace(self):
+        from srun.tools import file_write, file_edit
+        import os
+        path = os.path.join(self.tmpdir, "space.txt")
+        file_write(path, "  hello  \n")
+        # "hello" is a substring of "  hello  " — it matches
+        result = file_edit(path, "hello", "hi")
+        assert "Replaced 1 occurrence" in result
+        # Exact with surrounding spaces is unique
+        result2 = file_edit(path, "  hi  ", "  bye  ")
+        assert "Replaced 1 occurrence" in result2
+
+    # ── grep_search ───────────────────────────────────────────────
+
+    def test_grep_search_finds_matches(self):
+        from srun.tools import file_write, grep_search
+        import os
+        path = os.path.join(self.tmpdir, "search.py")
+        file_write(path, "def hello():\n    print('world')\n\ndef goodbye():\n    return 42\n")
+        result = grep_search("def", self.tmpdir, context_lines=0)
+        # output contains file path and match content
+        assert "search.py" in result
+        assert "hello" in result or "goodbye" in result
+        assert result.strip()  # not empty
+
+    def test_grep_search_regex(self):
+        from srun.tools import file_write, grep_search
+        import os
+        path = os.path.join(self.tmpdir, "regex.py")
+        file_write(path, "var1 = 100\nvar2 = 200\nxyz = 300\n")
+        result = grep_search(r"var\d", self.tmpdir, context_lines=0)
+        assert "var1" in result or "var2" in result
+        assert "xyz" not in result
+
+    # ── tool definitions ─────────────────────────────────────────
+
+    def test_new_tools_in_definitions(self):
+        from srun.tools import TOOL_DEFINITIONS
+        names = {t["function"]["name"] for t in TOOL_DEFINITIONS}
+        assert "grep_search" in names
+        assert "file_edit" in names
+        assert "file_write" in names
+
+    def test_new_tools_in_handlers(self):
+        from srun.tools import TOOL_HANDLERS
+        assert "grep_search" in TOOL_HANDLERS
+        assert "file_edit" in TOOL_HANDLERS
+        assert "file_write" in TOOL_HANDLERS
