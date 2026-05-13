@@ -70,7 +70,7 @@ class ShellExecutor:
             )
             os.set_blocking(self._ssh_process.stdout.fileno(), False)
             # Warm up — send a no-op to confirm connection
-            ok, out = self._send_ssh_command("echo ok", timeout=10)
+            ok, out, _ = self._send_ssh_command("echo ok", timeout=10)
             if not ok or "ok" not in out:
                 self._ssh_process.kill()
                 self._ssh_process = None
@@ -97,16 +97,19 @@ class ShellExecutor:
         self._remote_label = None
 
     def _send_ssh_command(self, cmd, timeout=30):
-        """Send a command to the persistent SSH session and read output until marker."""
+        """Send a command to the persistent SSH session and read output until marker.
+        Returns (ok, output, exit_code)."""
         if not self._ssh_process or self._ssh_process.poll() is not None:
-            return False, "SSH session disconnected"
+            return False, "SSH session disconnected", -1
         try:
-            self._ssh_process.stdin.write(f"{cmd}\necho {_MARKER}\n")
+            # Append marker with exit code capture
+            self._ssh_process.stdin.write(f"{cmd}\necho {_MARKER} $?\n")
             self._ssh_process.stdin.flush()
         except Exception:
-            return False, "SSH write error"
+            return False, "SSH write error", -1
 
         output_lines = []
+        exit_code = -1
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
@@ -124,12 +127,16 @@ class ShellExecutor:
                     break
                 continue
             if _MARKER in line:
+                # Parse exit code from: __SRUN_SSH_DONE__ 0
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[-1].lstrip("-").isdigit():
+                    exit_code = int(parts[-1])
                 out = "\n".join(output_lines)
-                return True, out
+                return True, out, exit_code
             stripped = line.rstrip("\n")
             if stripped:
                 output_lines.append(stripped)
-        return False, "SSH command timed out"
+        return False, "SSH command timed out", -1
 
     # ── Execute ───────────────────────────────────────────────────
 
@@ -138,9 +145,11 @@ class ShellExecutor:
 
         # Remote: send through persistent SSH session
         if self._ssh_process:
-            ok, out = self._send_ssh_command(stripped)
+            ok, out, exit_code = self._send_ssh_command(stripped)
             if not ok:
-                return False, out, out, -1
+                return False, out, out, exit_code
+            if exit_code != 0:
+                return False, out, out, exit_code
             return True, out, "", 0
 
         # Local: subprocess.run
