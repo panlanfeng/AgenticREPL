@@ -64,7 +64,10 @@ class Config:
         from .user_config import get_api_config, get
         self.api_key, self.api_base, self.model = get_api_config()
         self.temperature = float(get("temperature"))
+        self.top_p = float(get("top_p"))
         self.max_tokens = int(get("max_tokens"))
+        self.stream = bool(get("stream"))
+        self.tool_choice = get("tool_choice") or None  # None = omit
 
     @property
     def has_llm(self):

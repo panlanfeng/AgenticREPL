@@ -12,7 +12,10 @@ DEFAULTS = {
     "api_base": "",
     "api_model": "",
     "temperature": 0.0,
+    "top_p": 0.0,          # 0 = not set; alternative to temperature
     "max_tokens": 2000,
+    "stream": True,         # set false for models with broken streaming
+    "tool_choice": "auto",  # set "" to omit (some models don't support it)
     "mcp_servers": {},
 }
 
@@ -23,7 +26,10 @@ TYPES = {
     "api_base": str,
     "api_model": str,
     "temperature": float,
+    "top_p": float,
     "max_tokens": int,
+    "stream": bool,
+    "tool_choice": str,
     "mcp_servers": dict,
 }
 

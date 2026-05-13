@@ -117,10 +117,13 @@ class LLM:
             try:
                 kwargs = {"model": config.model, "messages": messages,
                           "temperature": config.temperature, "max_tokens": config.max_tokens,
-                          "stream": True}
+                          "stream": config.stream}
+                if config.top_p > 0:
+                    kwargs["top_p"] = config.top_p
                 if tools:
                     kwargs["tools"] = tools
-                    kwargs["tool_choice"] = "auto"
+                    if config.tool_choice:
+                        kwargs["tool_choice"] = config.tool_choice
                 stream = self.client.chat.completions.create(**kwargs)
 
                 content_parts = []

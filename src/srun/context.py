@@ -291,6 +291,8 @@ class SessionState:
             from .config import config
             kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
                       "temperature": config.temperature, "max_tokens": config.max_tokens, "stream": False}
+            if config.top_p > 0:
+                kwargs["top_p"] = config.top_p
             resp = llm_module.client.chat.completions.create(**kwargs)
             summary = resp.choices[0].message.content.strip()
             if llm_module._track_usage:
@@ -513,6 +515,8 @@ class SessionState:
             from .config import config
             kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
                       "temperature": config.temperature, "max_tokens": config.max_tokens, "stream": False}
+            if config.top_p > 0:
+                kwargs["top_p"] = config.top_p
             resp = llm_module.client.chat.completions.create(**kwargs)
             memory = resp.choices[0].message.content.strip()
             if llm_module._track_usage:
