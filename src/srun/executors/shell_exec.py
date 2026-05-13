@@ -2,7 +2,7 @@ import subprocess
 import os
 import re
 import shutil
-import shlex
+import time
 
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
@@ -11,17 +11,13 @@ _TTY_COMMANDS = {"less", "more", "vim", "vi", "nano", "emacs", "top", "htop",
 
 
 def _needs_tty(command):
-    """Check if command needs a real terminal (interactive, pagers, editors)."""
     base = command.strip().split()[0]
-    # Full match for exact commands
     if base in _TTY_COMMANDS:
         return True
-    # git subcommands that need pager: log, diff, show, blame
     if base == "git":
         parts = command.strip().split()
         if len(parts) > 1 and parts[1] in ("log", "diff", "show", "blame", "reflog"):
             return True
-    # man requires a specific section number, e.g. "man 3 printf"
     return False
 
 
@@ -35,18 +31,21 @@ def _build_env():
 
 
 _SSH_RE = re.compile(r"^ssh(?:\s+(?:-[^\s]+(?:\s+[^\s]+)?))*\s+([^\s]+)$")
+_MARKER = "__SRUN_SSH_DONE__"
 
 
 class ShellExecutor:
     def __init__(self):
         self.shell = shutil.which(SHELL_BIN) or SHELL_BIN
         self.env = _build_env()
-        self._ssh_prefix = None
+        self._ssh_process = None  # persistent SSH shell session
         self._remote_label = None
 
     @property
     def remote(self):
         return self._remote_label
+
+    # ── SSH connection ────────────────────────────────────────────
 
     def connect_ssh(self, cmd):
         stripped = cmd.strip()
@@ -58,51 +57,101 @@ class ShellExecutor:
         if not m:
             return "Invalid SSH syntax. Use: ssh [options] user@host"
         target = m.group(m.lastindex)
-        self._ssh_prefix = cmd.strip()
         self._remote_label = target
+
+        # Open a persistent SSH shell session (like R executor pattern)
         try:
-            r = subprocess.run(
-                f"{self._ssh_prefix} 'echo connected'",
-                shell=True,
-                executable=self.shell,
-                capture_output=True,
-                text=True,
-                timeout=10,
+            ssh_cmd = ["ssh", "-o", "LogLevel=QUIET", "-T", target]
+            self._ssh_process = subprocess.Popen(
+                ssh_cmd,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1,
                 cwd=os.getcwd(),
-                env=self.env,
             )
-            if r.returncode != 0:
-                self._ssh_prefix = None
+            os.set_blocking(self._ssh_process.stdout.fileno(), False)
+            # Warm up — send a no-op to confirm connection
+            ok, out = self._send_ssh_command("echo ok", timeout=10)
+            if not ok or "ok" not in out:
+                self._ssh_process.kill()
+                self._ssh_process = None
                 self._remote_label = None
-                return f"SSH connection failed:\n{r.stderr or r.stdout}"
-        except subprocess.TimeoutExpired:
-            self._ssh_prefix = None
+                return f"SSH connection failed:\n{out}"
+            return None
+        except FileNotFoundError:
             self._remote_label = None
-            return "SSH connection timed out"
+            return "SSH: ssh command not found"
         except Exception as e:
-            self._ssh_prefix = None
+            self._ssh_process = None
             self._remote_label = None
             return f"SSH error: {e}"
-        return None
 
     def disconnect(self):
-        self._ssh_prefix = None
+        if self._ssh_process and self._ssh_process.poll() is None:
+            try:
+                self._ssh_process.stdin.write("exit\n")
+                self._ssh_process.stdin.flush()
+                self._ssh_process.wait(timeout=3)
+            except Exception:
+                self._ssh_process.kill()
+        self._ssh_process = None
         self._remote_label = None
+
+    def _send_ssh_command(self, cmd, timeout=30):
+        """Send a command to the persistent SSH session and read output until marker."""
+        if not self._ssh_process or self._ssh_process.poll() is not None:
+            return False, "SSH session disconnected"
+        try:
+            self._ssh_process.stdin.write(f"{cmd}\necho {_MARKER}\n")
+            self._ssh_process.stdin.flush()
+        except Exception:
+            return False, "SSH write error"
+
+        output_lines = []
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                line = self._ssh_process.stdout.readline()
+            except Exception:
+                time.sleep(0.05)
+                self._ssh_process.poll()
+                if self._ssh_process.returncode is not None:
+                    break
+                continue
+            if not line:
+                time.sleep(0.05)
+                self._ssh_process.poll()
+                if self._ssh_process.returncode is not None:
+                    break
+                continue
+            if _MARKER in line:
+                out = "\n".join(output_lines)
+                return True, out
+            stripped = line.rstrip("\n")
+            if stripped:
+                output_lines.append(stripped)
+        return False, "SSH command timed out"
+
+    # ── Execute ───────────────────────────────────────────────────
 
     def execute(self, code):
         stripped = code.strip()
-        if self._ssh_prefix:
-            code = f"{self._ssh_prefix} {shlex.quote(stripped)}"
 
-        # Interactive commands need direct terminal access, not capture
+        # Remote: send through persistent SSH session
+        if self._ssh_process:
+            ok, out = self._send_ssh_command(stripped)
+            if not ok:
+                return False, out, out, -1
+            return True, out, "", 0
+
+        # Local: subprocess.run
         if _needs_tty(stripped):
             rc = subprocess.call(stripped, shell=True, executable=self.shell,
-                                 cwd=os.getcwd(), env=self.env)
+                                  cwd=os.getcwd(), env=self.env)
             return rc == 0, "", "", 0 if rc == 0 else rc
 
         try:
             result = subprocess.run(
-                code,
+                stripped,
                 shell=True,
                 executable=self.shell,
                 capture_output=True,
@@ -120,7 +169,7 @@ class ShellExecutor:
         if result.stderr:
             output += result.stderr
 
-        if self._is_pure_cd(stripped) and not self._ssh_prefix:
+        if self._is_pure_cd(stripped):
             new_cwd = self._sync_cd(stripped)
             if new_cwd:
                 os.chdir(new_cwd)
@@ -128,6 +177,8 @@ class ShellExecutor:
         if result.returncode != 0:
             return False, output, result.stderr, result.returncode
         return True, output, result.stderr
+
+    # ── Helpers ───────────────────────────────────────────────────
 
     def _is_cd(self, code):
         return code.startswith("cd ") or code == "cd"
