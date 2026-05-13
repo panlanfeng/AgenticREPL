@@ -384,6 +384,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
             if sh_exec.remote:
                 sh_exec.disconnect()
+                state._context_stale = True
                 print("Disconnected from remote.")
                 continue
             if _exit_pending:
@@ -504,6 +505,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 continue
         elif sh_exec.remote and user_input.lower() in ("exit", "quit"):
             sh_exec.disconnect()
+            state._context_stale = True
             print("Disconnected from remote.")
             continue
         elif lang == "shell" and user_input.lower() in ("exit", "quit"):
