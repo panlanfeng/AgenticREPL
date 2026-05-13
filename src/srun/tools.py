@@ -291,7 +291,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute ONE logical step in the target REPL (shell/python/r). Do NOT chain with ; or && — call run_command once per step. Each call shows its code and output immediately to the user. After execution, check output and decide the next step.",
+            "description": "Execute a command in the target REPL environment (shell, python, or r). Output is returned raw — print results directly, do not wrap in JSON. After execution, check output and decide next step.",
             "parameters": {
                 "type": "object",
                 "properties": {
