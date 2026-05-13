@@ -202,7 +202,7 @@ class LLM:
                                     all_commands[-1]["output"] = out.strip() if out else ""
                                 # Print code + output inline (natural interleaved order)
                                 for line in cmd.split("\n"):
-                                    print(f"\033[1;32m> {line}\033[0m")
+                                    print(f"\033[1;32m> {line}\033[0m", flush=True)
                                 stripped_out = out.strip() if out else ""
                                 if stripped_out:
                                     print(stripped_out)
