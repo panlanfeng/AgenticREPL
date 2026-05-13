@@ -287,12 +287,11 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
                     }
         first = tool_calls[0]
         gen_code = first["command"] if isinstance(first, dict) else str(first)
-        all_code = "; ".join(tc["command"] if isinstance(tc, dict) else str(tc) for tc in tool_calls)
         return {
             "success": True,
-            "output": llm._last_output.strip() if llm._last_output else "",
+            "output": "",  # output now embedded in generated_code pairs
             "llm_used": True, "language": lang,
-            "generated_code": all_code if len(tool_calls) > 0 else None,
+            "generated_code": tool_calls if len(tool_calls) > 0 else None,
             "summary": summary,
         }
     if summary:
@@ -766,7 +765,8 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     lang_val = "shell"
     if isinstance(first_cmd, dict):
         lang_val = first_cmd.get("language", "shell")
-    return {"success": True, "output": llm._last_output.strip() if llm._last_output else "", "llm_used": True,
+    outputs = [tc["output"] for tc in tool_calls if isinstance(tc, dict) and tc.get("output")] if tool_calls else []
+    return {"success": True, "output": "\n".join(outputs) if outputs else "", "llm_used": True,
             "language": lang_val,
             "generated_code": gen_code if len(tool_calls) == 1 else None,
             "summary": summary}
@@ -796,9 +796,19 @@ def print_result(result, elapsed_ms):
         for line in fixed.split("\n"):
             print(f"\033[1;32m> {line}\033[0m")
     if generated:
-        for line in generated.split("\n"):
-            print(f"\033[1;32m> {line}\033[0m")
+        if isinstance(generated, list):
+            for item in generated:
+                code = item["command"] if isinstance(item, dict) else str(item)
+                for line in code.split("\n"):
+                    print(f"\033[1;32m> {line}\033[0m")
+                out = item.get("output", "") if isinstance(item, dict) else ""
+                if out:
+                    print(out.rstrip())
+        else:
+            for line in str(generated).split("\n"):
+                print(f"\033[1;32m> {line}\033[0m")
 
+    output = result.get("output", "")
     if output:
         print(output.rstrip())
 
