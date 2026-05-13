@@ -11,6 +11,8 @@ DEFAULTS = {
     "api_key": "",
     "api_base": "",
     "api_model": "",
+    "temperature": 0.0,
+    "max_tokens": 2000,
     "mcp_servers": {},
 }
 
@@ -20,6 +22,8 @@ TYPES = {
     "api_key": str,
     "api_base": str,
     "api_model": str,
+    "temperature": float,
+    "max_tokens": int,
     "mcp_servers": dict,
 }
 

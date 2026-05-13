@@ -61,9 +61,10 @@ def init():
 
 class Config:
     def __init__(self):
-        from .user_config import get_api_config
+        from .user_config import get_api_config, get
         self.api_key, self.api_base, self.model = get_api_config()
-        self.max_retries = 3
+        self.temperature = float(get("temperature"))
+        self.max_tokens = int(get("max_tokens"))
 
     @property
     def has_llm(self):

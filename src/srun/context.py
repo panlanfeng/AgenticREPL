@@ -288,8 +288,9 @@ class SessionState:
         )
         summary_msgs = msgs + [{"role": "user", "content": summary_prompt}]
         try:
+            from .config import config
             kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
-                      "temperature": 0.0, "max_tokens": 800, "stream": False}
+                      "temperature": config.temperature, "max_tokens": 800, "stream": False}
             resp = llm_module.client.chat.completions.create(**kwargs)
             summary = resp.choices[0].message.content.strip()
             if llm_module._track_usage:
@@ -509,8 +510,9 @@ class SessionState:
 
         summary_msgs = msgs + [{"role": "user", "content": memory_prompt}]
         try:
+            from .config import config
             kwargs = {"model": llm_module.client.model, "messages": summary_msgs,
-                      "temperature": 0.0, "max_tokens": 1200, "stream": False}
+                      "temperature": config.temperature, "max_tokens": 1200, "stream": False}
             resp = llm_module.client.chat.completions.create(**kwargs)
             memory = resp.choices[0].message.content.strip()
             if llm_module._track_usage:

@@ -115,7 +115,9 @@ class LLM:
         while total_tokens < MAX_TOKENS:
             start = time.perf_counter()
             try:
-                kwargs = {"model": config.model, "messages": messages, "temperature": 0.0, "max_tokens": 2000, "stream": True}
+                kwargs = {"model": config.model, "messages": messages,
+                          "temperature": config.temperature, "max_tokens": config.max_tokens,
+                          "stream": True}
                 if tools:
                     kwargs["tools"] = tools
                     kwargs["tool_choice"] = "auto"
