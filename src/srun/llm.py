@@ -164,7 +164,7 @@ class LLM:
                             if tc.function and tc.function.arguments:
                                 tool_call_data[idx]["arguments"] += tc.function.arguments or ""
 
-                if content_parts:
+                if content_parts or reasoning:
                     print(flush=True)
 
                 self._track_usage(usage)
