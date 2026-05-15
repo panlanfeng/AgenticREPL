@@ -169,7 +169,7 @@ Supported providers: deepseek (default), openai, anthropic, google, glm, kimi, m
 If `srun` is not found after install:
 ```bash
 which srun
-export PATH="$(python -m site --user-base)/bin:$PATH"
+export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"
 ```
 
 No API key? `srun` still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
