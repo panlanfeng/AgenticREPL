@@ -177,7 +177,8 @@ def main():
 
     print(LOGO)
     if llm.client:
-        print(f"\033[2m  model: {config.model}\033[0m")
+        provider_str = f" ({config.provider})" if config.provider else ""
+        print(f"\033[2m  model: {config.model}{provider_str}\033[0m")
     else:
         print("\033[2m  no API key — /configure to set up\033[0m")
 
@@ -564,8 +565,9 @@ def _print_config_help():
     print("Available providers: deepseek, openai, anthropic, google, glm, kimi,")
     print("  minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom")
     print("")
-    print("Or use env vars: SRUN_API_KEY, SRUN_API_BASE, SRUN_MODEL")
-    print("  or provider-specific: DEEPSEEK_API_KEY, OPENAI_API_KEY, etc.")
+    print("Or use env vars: export DEEPSEEK_API_KEY=\"sk-...\"")
+    print("  or provider-specific: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, etc.")
+    print("  explicit override: SRUN_API_KEY, SRUN_API_BASE, SRUN_MODEL")
 
 
 def _handle_ssh(command, sh_exec):

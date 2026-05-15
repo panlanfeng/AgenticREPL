@@ -61,7 +61,7 @@ class LLM:
 
     def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
         if not self.client:
-            return "No LLM configured — set SRUN_API_KEY or add api_key to ~/.srun/user_config.json", None
+            return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None
 
         failure_text = (
             f"The user typed: {user_input}\n"

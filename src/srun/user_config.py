@@ -41,47 +41,47 @@ TYPES = {
 PROVIDERS = {
     "deepseek":    {"name": "DeepSeek",
                     "api_base": "https://api.deepseek.com/v1",
-                    "api_model": "deepseek-chat",
+                    "api_model": "deepseek-v4-pro",
                     "env_var": "DEEPSEEK_API_KEY"},
     "openai":      {"name": "OpenAI",
                     "api_base": "https://api.openai.com/v1",
-                    "api_model": "gpt-4o",
+                    "api_model": "gpt-5.5",
                     "env_var": "OPENAI_API_KEY"},
     "anthropic":   {"name": "Anthropic",
                     "api_base": "https://api.anthropic.com/v1",
-                    "api_model": "claude-sonnet-4-5",
+                    "api_model": "claude-opus-4-7",
                     "env_var": "ANTHROPIC_API_KEY"},
     "google":      {"name": "Google Gemini",
                     "api_base": "https://generativelanguage.googleapis.com/v1beta/openai",
-                    "api_model": "gemini-2.5-pro",
+                    "api_model": "gemini-3.1-pro-preview",
                     "env_var": "GOOGLE_API_KEY"},
     "glm":         {"name": "Zhipu GLM",
                     "api_base": "https://open.bigmodel.cn/api/paas/v4",
-                    "api_model": "glm-4-plus",
+                    "api_model": "glm-5.1",
                     "env_var": "GLM_API_KEY"},
     "kimi":        {"name": "Moonshot Kimi",
-                    "api_base": "https://api.moonshot.cn/v1",
-                    "api_model": "moonshot-v1-8k",
+                    "api_base": "https://api.moonshot.ai/v1",
+                    "api_model": "kimi-k2-thinking",
                     "env_var": "KIMI_API_KEY"},
     "minimax":     {"name": "MiniMax",
                     "api_base": "https://api.minimax.chat/v1",
-                    "api_model": "abab6.5s-chat",
+                    "api_model": "MiniMax-M2.7",
                     "env_var": "MINIMAX_API_KEY"},
     "qwen":        {"name": "Alibaba Qwen",
                     "api_base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-                    "api_model": "qwen-max",
+                    "api_model": "qwen3.6-plus",
                     "env_var": "QWEN_API_KEY"},
     "xai":         {"name": "xAI",
                     "api_base": "https://api.x.ai/v1",
-                    "api_model": "grok-2-1212",
+                    "api_model": "grok-4.3",
                     "env_var": "XAI_API_KEY"},
     "openrouter":  {"name": "OpenRouter",
                     "api_base": "https://openrouter.ai/api/v1",
-                    "api_model": "openai/gpt-4o",
+                    "api_model": "openrouter/auto",
                     "env_var": "OPENROUTER_API_KEY"},
     "siliconflow": {"name": "SiliconFlow",
                     "api_base": "https://api.siliconflow.cn/v1",
-                    "api_model": "deepseek-ai/DeepSeek-V3",
+                    "api_model": "deepseek-ai/DeepSeek-V4-Flash",
                     "env_var": "SILICONFLOW_API_KEY"},
     "perplexity":  {"name": "Perplexity",
                     "api_base": "https://api.perplexity.ai",
@@ -89,11 +89,11 @@ PROVIDERS = {
                     "env_var": "PERPLEXITY_API_KEY"},
     "mistral":     {"name": "Mistral AI",
                     "api_base": "https://api.mistral.ai/v1",
-                    "api_model": "mistral-large-latest",
+                    "api_model": "mistral-large-2512",
                     "env_var": "MISTRAL_API_KEY"},
     "bedrock":     {"name": "Amazon Bedrock",
                     "api_base": "https://bedrock-runtime.us-east-1.amazonaws.com",
-                    "api_model": "anthropic.claude-sonnet-4-5-v1:0",
+                    "api_model": "anthropic.claude-opus-4-7-v1:0",
                     "env_var": "AWS_ACCESS_KEY_ID"},
     "custom":      {"name": "Custom",
                     "api_base": "",
@@ -177,7 +177,7 @@ def get_api_config():
     env_key = os.environ.get("SRUN_API_KEY", "")
     if env_key:
         env_base = os.environ.get("SRUN_API_BASE", "") or "https://api.deepseek.com/v1"
-        env_model = os.environ.get("SRUN_MODEL", "") or "deepseek-chat"
+        env_model = os.environ.get("SRUN_MODEL", "") or "deepseek-v4-pro"
         return env_key, env_base, env_model
 
     # Priority 2: Auto-detect from provider-specific env vars
@@ -202,6 +202,6 @@ def get_api_config():
 
     # Priority 4: Hardcoded defaults (deepseek)
     api_base = api_base or "https://api.deepseek.com/v1"
-    api_model = api_model or "deepseek-chat"
+    api_model = api_model or "deepseek-v4-pro"
 
     return api_key, api_base, api_model

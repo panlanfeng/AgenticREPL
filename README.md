@@ -148,24 +148,28 @@ $ srun deploy.sh
 ## Quick start
 
 ```bash
-# Homebrew (macOS/Linux)
-brew install panlanfeng/agenticrepl/agenticrepl
-
-# Or via pip
 pip install git+https://github.com/panlanfeng/AgenticREPL.git
 
-export SRUN_API_KEY="sk-xxx"
-export SRUN_API_BASE="https://api.openai.com/v1"  # optional
-export SRUN_MODEL="gpt-4o"                         # optional
-srun                           # verify it's working
+# Set your provider's API key — auto-detected (no need to set base/model)
+export DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
+# export OPENAI_API_KEY="sk-xxx"     # for OpenAI
+# export ANTHROPIC_API_KEY="sk-xxx"  # for Anthropic
+
+srun                                # start the REPL
+srun> /configure                     # or configure interactively in REPL
 ```
 
-If `srun` is not found, ensure pip's bin directory is on your PATH:
+Or set provider via config file (`~/.srun/user_config.json`):
+```json
+{ "provider": "openai", "api_key": "sk-..." }
+```
+
+Supported providers: deepseek (default), openai, anthropic, google, glm, kimi, minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom.
+
+If `srun` is not found after install:
 ```bash
-which srun                     # should show the installed path
-# If not found, add to PATH:
-export PATH="$(python -m site --user-base)/bin:$PATH"  # Linux/Mac user install
-export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"  # venv
+which srun
+export PATH="$(python -m site --user-base)/bin:$PATH"
 ```
 
 No API key? `srun` still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
