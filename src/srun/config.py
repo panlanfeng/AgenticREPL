@@ -61,8 +61,9 @@ def init():
 
 class Config:
     def __init__(self):
-        from .user_config import get_api_config, get
+        from .user_config import get_api_config, get, load
         self.api_key, self.api_base, self.model = get_api_config()
+        self.provider = load().get("provider", "deepseek")
         self.temperature = float(get("temperature"))
         self.top_p = float(get("top_p"))
         self.max_tokens = int(get("max_tokens"))

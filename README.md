@@ -101,6 +101,12 @@ R> plot mtcars with mpg on x, hp on y, color points by cyl as factor, add smooth
 ## AgenticREPL is a full fledged AI Agent
 
 It is not just translating your command as a one time request but it view all the full interaction history and understand your intention. 
+You can ask it to read your repo, edit your files, fix a bug and run tests for you, just like a regular coding agent. 
+```shell
+shell> add comments for the file test.py, run it and fix any bugs
+
+```
+
 
 ## How it works
 
@@ -112,7 +118,7 @@ User input
             ├─ LLM uses tools: search files, check commands, read data
             ├─ LLM generates code → executed inline, output shown to user
             ├─ LLM sees output, can call more tools or stop
-            └─ Loop until LLM stops or max rounds (up to 4 repair retries)
+            └─ Loop until LLM stops or max number of tokens reached
 ```
 
 - **Try first, ask later** — execute directly. Only call LLM when something fails.

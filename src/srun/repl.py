@@ -554,17 +554,18 @@ def _run_repl(py_exec, sh_exec, r_exec):
 
 
 def _print_config_help():
-    print("Configure your API key in ~/.srun/user_config.json:")
+    print("Configure in ~/.srun/user_config.json:")
     print("  {")
+    print('    "provider": "deepseek",')
     print('    "api_key": "sk-...",')
-    print('    "api_base": "https://api.openai.com/v1",')
-    print('    "api_model": "gpt-4o",')
-    print('    "temperature": 0.0,')
-    print('    "max_tokens": 4096')
+    print('    "api_model": "deepseek-chat"')
     print("  }")
     print("")
-    print("Or use environment variables: SRUN_API_KEY, SRUN_API_BASE, SRUN_MODEL")
-    print("Works with any OpenAI-compatible API (DeepSeek, SiliconFlow, Groq, etc.)")
+    print("Available providers: deepseek, openai, anthropic, google, glm, kimi,")
+    print("  minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom")
+    print("")
+    print("Or use env vars: SRUN_API_KEY, SRUN_API_BASE, SRUN_MODEL")
+    print("  or provider-specific: DEEPSEEK_API_KEY, OPENAI_API_KEY, etc.")
 
 
 def _handle_ssh(command, sh_exec):

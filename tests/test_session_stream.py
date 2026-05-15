@@ -579,8 +579,11 @@ class TestRunInput:
         from srun.repl import _run_input
         result = _run_input("echoo hello", self.py, self.sh, self.r)
         if not result["success"]:
-            # Without API key, LLM returns a config error — that's expected
-            assert result.get("llm_used", False) or any(kw in result.get("output", "") for kw in ("No LLM configured", "Unable to understand"))
+            # Without valid API key, LLM returns a config/auth error — that's expected
+            assert result.get("llm_used", False) or any(
+                kw in result.get("output", "")
+                for kw in ("No LLM configured", "Unable to understand", "LLM error")
+            )
 
     def test_direct_python_executes(self):
         """Python code executes in Python session."""
@@ -598,8 +601,11 @@ class TestRunInput:
         from srun.repl import _run_input
         state.current_language = "python"
         result = _run_input("pritn('hello')", self.py, self.sh, self.r)
-        # Without API key, LLM returns config error — that's expected behavior
-        assert result["success"] or result["llm_used"] or "No LLM configured" in (result.get("output") or "")
+        # Without valid API key, LLM returns config/auth error — that's expected behavior
+        assert result["success"] or result["llm_used"] or any(
+            kw in (result.get("output") or "")
+            for kw in ("No LLM configured", "LLM error")
+        )
 
     def test_quick_fix_ll_alias_no_llm(self):
         """'ll' quick-fix runs 'ls -la' with zero LLM calls."""
