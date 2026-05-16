@@ -168,12 +168,9 @@ class ShellExecutor:
                 executable=self.shell,
                 capture_output=True,
                 text=True,
-                timeout=30,
                 cwd=os.getcwd(),
                 env=self.env,
             )
-        except subprocess.TimeoutExpired:
-            return False, "Command timed out (30s)", "", -1
         except Exception as e:
             return False, f"Error: {e}", "", -1
 
