@@ -312,6 +312,9 @@ class LLM:
                 if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
                     time.sleep(1.5)
                     continue
+                if any(kw in err_msg for kw in ("401", "403", "authentication", "invalid api key", "invalid_request_error", "access denied")):
+                    return ("Authentication failed — check your API key. Set DEEPSEEK_API_KEY, OPENAI_API_KEY,"
+                            " or add api_key to ~/.srun/user_config.json. Type /configure for help."), None
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages)
                 return f"LLM error: {e}", None

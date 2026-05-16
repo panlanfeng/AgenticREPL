@@ -268,7 +268,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
                 "generated_code": None, "summary": summary, "agent_text": llm._agent_text,
             }
         if summary:
-            if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget")):
+            if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget", "Authentication failed")):
                 return {"success": False, "output": summary, "llm_used": False, "language": lang}
             return {"success": True, "output": "", "llm_used": True, "language": "text"}
         return {
