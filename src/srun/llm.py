@@ -3,6 +3,7 @@ import os
 import re
 import time
 import types
+import difflib
 from openai import OpenAI
 from .config import config
 from .context import state
@@ -225,9 +226,27 @@ class LLM:
                                     content += "\nUser approved. You may proceed with the action."
                                 print(f"\033[2m  → asking user: {question} → {response}\033[0m", flush=True)
                             else:
-                                label = tc.function.name.replace("get_command_help", "reading help").replace("check_command", "checking command").replace("search_files", "searching files").replace("read_file", "reading file").replace("get_env_info", "checking environment").replace("check_repo_info", "checking repo").replace("check_command_versions", "checking versions").replace("ask_user", "requesting confirmation")
-                                val = list(args.values())[0] if args else ""
-                                print(f"\033[2m  → {label}: {val}\033[0m", flush=True)
+                                if tc.function.name == "file_edit":
+                                    old = args.get("old_string", "")
+                                    new = args.get("new_string", "")
+                                    diff = difflib.unified_diff(
+                                        old.splitlines(keepends=True),
+                                        new.splitlines(keepends=True),
+                                        fromfile="a", tofile="b", lineterm=""
+                                    )
+                                    diff_text = "".join(diff)
+                                    if diff_text:
+                                        for line in diff_text.split("\n"):
+                                            if line.startswith("---") or line.startswith("+++"):
+                                                print(f"\033[2m  {line}\033[0m")
+                                            elif line.startswith("@@"):
+                                                print(f"\033[1;36m  {line}\033[0m")
+                                            elif line.startswith("-"):
+                                                print(f"\033[1;31m  {line}\033[0m")
+                                            elif line.startswith("+"):
+                                                print(f"\033[1;32m  {line}\033[0m")
+                                            else:
+                                                print(f"\033[2m  {line}\033[0m")
                                 if tc.function.name.startswith("mcp_"):
                                     result = mcp.call_tool(tc.function.name, args)
                                 else:
