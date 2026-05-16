@@ -15,6 +15,7 @@ SHELL_COMMANDS = {
     "ifconfig", "lsof", "mount", "umount", "tee", "xargs", "jq", "yq", "watch",
     "crontab", "alias", "type", "fg", "bg", "jobs", "dirname", "basename",
     "ll", "la", "l", "sudo", "su", "exec", "nice", "nohup", "time", "perf",
+    "sleep", "source", "test", "printf", "yes", "wait", "true", "false",
 }
 
 NL_KEYWORDS = [
@@ -28,6 +29,7 @@ NL_KEYWORDS = [
 SHELL_PATTERNS = [
     r"\|", r">>", r">(?![=])", r"<\s", r"&&", r"\|\|", r";",
     r"\$\(", r"`[^`]+`", r"\\\n",
+    r"[^&]\s*&\s*$",
 ]
 
 
@@ -102,9 +104,13 @@ class Dispatcher:
                 if isinstance(node, ast.Assign):
                     return True
                 if isinstance(node, ast.Expr) and len(tree.body) == 1:
-                    if isinstance(node.value, (ast.BinOp, ast.UnaryOp)):
-                        if _is_numeric_expr(node.value) or _contains_numeric_constant(node.value):
-                            return True
+                    if isinstance(node.value, (ast.BinOp, ast.UnaryOp, ast.List,
+                                                ast.Dict, ast.Tuple, ast.Set,
+                                                ast.JoinedStr)):
+                        if isinstance(node.value, (ast.BinOp, ast.UnaryOp)):
+                            if not _is_numeric_expr(node.value) and not _contains_numeric_constant(node.value):
+                                continue
+                        return True
             return False
         except SyntaxError:
             return False

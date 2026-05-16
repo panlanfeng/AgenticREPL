@@ -7,15 +7,18 @@ import time
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
 _TTY_COMMANDS = {"less", "more", "vim", "vi", "nano", "emacs", "top", "htop",
-                  "man", "git", "ssh", "tmux", "screen", "watch", "htop"}
+                  "man", "ssh", "tmux", "screen", "watch", "htop"}
 
 
 def _needs_tty(command):
-    base = command.strip().split()[0]
+    stripped = command.strip()
+    if not stripped:
+        return False
+    base = stripped.split()[0]
     if base in _TTY_COMMANDS:
         return True
     if base == "git":
-        parts = command.strip().split()
+        parts = stripped.split()
         if len(parts) > 1 and parts[1] in ("log", "diff", "show", "blame", "reflog"):
             return True
     return False

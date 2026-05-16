@@ -84,7 +84,7 @@ def _is_incomplete(code, language):
             return False
         except SyntaxError as e:
             msg = str(e)
-            if "unexpected EOF" in msg or "expected" in msg:
+            if "unexpected EOF" in msg or "expected" in msg or "never closed" in msg:
                 return True
             return False
         except Exception:

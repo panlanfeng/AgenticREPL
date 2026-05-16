@@ -64,6 +64,15 @@ class RExecutor:
                 if stripped and not stripped.startswith("> ") and not stripped.startswith("+ "):
                     output_lines.append(stripped)
 
+            if output_lines:
+                out = "\n".join(output_lines)
+                self._process.poll()
+                rc = self._process.returncode
+                ok = rc is None or rc == 0
+                if not ok:
+                    self._process = None
+                return ok, out, out
+
             try:
                 self._process.kill()
                 self._process.wait(timeout=2)
