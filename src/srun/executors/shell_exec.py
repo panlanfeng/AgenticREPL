@@ -3,6 +3,9 @@ import os
 import re
 import shutil
 import time
+import platform
+import tempfile
+import atexit
 
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
@@ -24,8 +27,33 @@ def _needs_tty(command):
     return False
 
 
+_GNUBIN_DIR = None
+
+
 def _build_env():
+    global _GNUBIN_DIR
     env = os.environ.copy()
+
+    # On macOS, create symlinks g- prefixed GNU tools to their unprefixed names
+    # and prepend to PATH. Linux already has GNU tools as the defaults.
+    if platform.system() == "Darwin" and _GNUBIN_DIR is None:
+        gnubin = os.path.join(tempfile.gettempdir(), f"srun-gnubin-{os.getpid()}")
+        os.makedirs(gnubin, exist_ok=True)
+        for cmd, gnu_cmd in [("grep", "ggrep"), ("awk", "gawk"), ("sed", "gsed"),
+                             ("find", "gfind"), ("make", "gmake"), ("tar", "gtar"),
+                             ("du", "gdu"), ("ls", "gls")]:
+            gnu_path = shutil.which(gnu_cmd)
+            if gnu_path:
+                link = os.path.join(gnubin, cmd)
+                if not os.path.exists(link):
+                    os.symlink(gnu_path, link)
+        if os.listdir(gnubin):
+            _GNUBIN_DIR = gnubin
+            atexit.register(shutil.rmtree, gnubin, ignore_errors=True)
+
+    if _GNUBIN_DIR:
+        env["PATH"] = _GNUBIN_DIR + os.pathsep + env.get("PATH", "")
+
     env["CLICOLOR"] = "1"
     env["CLICOLOR_FORCE"] = "1"
     if "LSCOLORS" not in env:
