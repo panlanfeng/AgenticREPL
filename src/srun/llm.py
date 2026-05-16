@@ -4,6 +4,7 @@ import re
 import time
 import types
 import difflib
+import uuid
 from openai import OpenAI
 from .config import config
 from .context import state
@@ -48,6 +49,31 @@ def _extract_command_from_text(text):
                         break
             i += 1
     return None
+
+
+_TOOL_TOKEN_THRESHOLD = 20000  # chars ≈ 5000 tokens; beyond this, dump to file
+_TOOL_PREVIEW_CHARS = 8000     # last ~2000 tokens shown in context
+
+
+def _truncate_tool_result(tool_name, result):
+    """Truncate large tool results. Dump full output to a file,
+    keep only the last ~2K tokens in context. read_file is never truncated."""
+    if tool_name == "read_file":
+        return result
+    if not result or len(result) <= _TOOL_TOKEN_THRESHOLD:
+        return result
+    os.makedirs(state.outputs_dir, exist_ok=True)
+    fname = f"tool_{tool_name}_{uuid.uuid4().hex[:8]}.txt"
+    fpath = os.path.join(state.outputs_dir, fname)
+    with open(fpath, "w") as f:
+        f.write(result)
+    preview = result[-_TOOL_PREVIEW_CHARS:]
+    if len(result) > _TOOL_PREVIEW_CHARS:
+        preview = "…\n" + preview
+    return (
+        f"[Full output saved to {os.path.relpath(fpath, os.path.expanduser('~/.srun/sessions'))} — "
+        f"use read_file to access. Last {_TOOL_PREVIEW_CHARS} chars preview:]\n\n{preview}"
+    )
 
 
 class LLM:
@@ -251,7 +277,7 @@ class LLM:
                                     result = mcp.call_tool(tc.function.name, args)
                                 else:
                                     result = execute_tool(tc.function.name, args)
-                                content = result
+                                content = _truncate_tool_result(tc.function.name, result)
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                     state.log_conversation(messages)
                     self._maybe_compact()
