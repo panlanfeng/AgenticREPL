@@ -72,12 +72,8 @@ def read_file(path, lines=None):
         with open(resolved, encoding="utf-8", errors="replace") as f:
             if lines:
                 content = "".join(f.readline() for _ in range(lines))
-            elif size > 100 * 1024:
-                content = f.read(5000) + f"\n... (truncated, {size}B total)"
             else:
-                content = f.read(10000)
-                if len(content) >= 10000:
-                    content += f"\n... (truncated)"
+                content = f.read()
         content = _redact_secrets(resolved, content)
         return f"--- {resolved} ({size}B) ---\n{content}"
     except Exception as e:

@@ -678,14 +678,14 @@ class TestREPLInteraction:
     def test_python_executor_simple(self):
         """PythonExecutor basic execution."""
         py = PythonExecutor()
-        ok, out, _ = py.execute("1 + 2")
+        ok, out, *_ = py.execute("1 + 2")
         assert ok
         assert "3" in out
 
     def test_python_executor_syntax_error(self):
         """PythonExecutor with syntax error."""
         py = PythonExecutor()
-        ok, out, stdout, stderr = py.execute("def foo(")
+        ok, out, *_ = py.execute("def foo(")
         assert not ok
         assert "SyntaxError" in out or "Error" in out
 

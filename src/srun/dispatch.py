@@ -27,7 +27,7 @@ NL_KEYWORDS = [
 ]
 
 SHELL_PATTERNS = [
-    r"\|", r">>", r">(?![=])", r"<\s", r"&&", r"\|\|", r";",
+    r"\|", r">>", r"(?<!%)>(?![=])", r"<\s", r"&&", r"\|\|", r";",
     r"\$\(", r"`[^`]+`", r"\\\n",
     r"[^&]\s*&\s*$",
 ]
@@ -80,10 +80,18 @@ class Dispatcher:
             return "empty"
         if _looks_like_pseudocode(stripped):
             return "unknown"
+        # Check Python first — AST parsing is strict, shell patterns are loose
+        if self._is_python(stripped):
+            return "python"
         if self._is_shell(stripped):
+            # R code with shell-like operators (>, <, |) should go to LLM
+            if self._is_r(stripped):
+                return "unknown"
             return "shell"
         if self._is_python(stripped):
             return "python"
+        if self._is_r(stripped):
+            return "unknown"  # R is handled by LLM
         return "unknown"
 
     def _is_python(self, code):
@@ -111,6 +119,8 @@ class Dispatcher:
                             if not _is_numeric_expr(node.value) and not _contains_numeric_constant(node.value):
                                 continue
                         return True
+                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                        return True
             return False
         except SyntaxError:
             return False
@@ -118,6 +128,15 @@ class Dispatcher:
     def _is_shell(self, code):
         first_word = code.split()[0].split("/")[-1] if code.split() else ""
         if first_word in SHELL_COMMANDS:
+            # If this looks like a Python assignment, don't claim it for shell
+            if '=' in code:
+                try:
+                    tree = ast.parse(code)
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                            return False
+                except SyntaxError:
+                    pass
             return True
         for pattern in SHELL_PATTERNS:
             if re.search(pattern, code):
@@ -125,6 +144,15 @@ class Dispatcher:
         if re.match(r"^\.\/", code):
             return True
         if re.match(r"^[a-zA-Z0-9_\-\.]+\s+--?\w+", code):
+            return True
+        return False
+
+    def _is_r(self, code):
+        if '<-' in code:
+            return True
+        if re.search(r'%[<>$T]+%', code):
+            return True
+        if re.search(r'\w\s*~\s*\w', code):
             return True
         return False
 

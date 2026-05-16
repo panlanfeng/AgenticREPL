@@ -54,14 +54,14 @@ class PythonExecutor:
             else:
                 exec(code, self.namespace)
         except Exception as e:
-            return False, f"{type(e).__name__}: {e}", stdout.getvalue(), stderr.getvalue()
+            return False, f"{type(e).__name__}: {e}", stdout.getvalue(), stderr.getvalue(), 1
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
         output = stdout.getvalue()
         error_output = stderr.getvalue()
         self._track_vars()
-        return True, output, error_output
+        return True, output, error_output, 0
 
     def _track_vars(self):
         try:

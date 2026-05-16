@@ -52,12 +52,13 @@ def _extract_command_from_text(text):
 
 
 _TOOL_TOKEN_THRESHOLD = 20000  # chars ≈ 5000 tokens; beyond this, dump to file
-_TOOL_PREVIEW_CHARS = 8000     # last ~2000 tokens shown in context
+_TOOL_HEAD_CHARS = 3000       # first ~750 tokens shown in context
+_TOOL_TAIL_CHARS = 5000       # last ~1250 tokens shown in context
 
 
 def _truncate_tool_result(tool_name, result):
     """Truncate large tool results. Dump full output to a file,
-    keep only the last ~2K tokens in context. read_file is never truncated."""
+    keep head + tail preview in context. read_file is never truncated."""
     if tool_name == "read_file":
         return result
     if not result or len(result) <= _TOOL_TOKEN_THRESHOLD:
@@ -67,12 +68,16 @@ def _truncate_tool_result(tool_name, result):
     fpath = os.path.join(state.outputs_dir, fname)
     with open(fpath, "w") as f:
         f.write(result)
-    preview = result[-_TOOL_PREVIEW_CHARS:]
-    if len(result) > _TOOL_PREVIEW_CHARS:
-        preview = "…\n" + preview
+    head = result[:_TOOL_HEAD_CHARS]
+    tail = result[-_TOOL_TAIL_CHARS:]
+    omitted = len(result) - _TOOL_HEAD_CHARS - _TOOL_TAIL_CHARS
+    if omitted > 0:
+        preview = head + f"\n... ({omitted} chars omitted) ...\n" + tail
+    else:
+        preview = result
     return (
         f"[Full output saved to {os.path.relpath(fpath, os.path.expanduser('~/.srun/sessions'))} — "
-        f"use read_file to access. Last {_TOOL_PREVIEW_CHARS} chars preview:]\n\n{preview}"
+        f"use read_file to access. Preview (first {_TOOL_HEAD_CHARS} + last {_TOOL_TAIL_CHARS} chars):]\n\n{preview}"
     )
 
 

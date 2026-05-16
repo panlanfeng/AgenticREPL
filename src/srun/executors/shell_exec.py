@@ -188,7 +188,7 @@ class ShellExecutor:
 
         if result.returncode != 0:
             return False, output, result.stderr, result.returncode
-        return True, output, result.stderr
+        return True, output, result.stderr, 0
 
     # ── Helpers ───────────────────────────────────────────────────
 

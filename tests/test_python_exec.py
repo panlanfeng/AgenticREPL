@@ -12,24 +12,24 @@ class TestPythonExecutor:
         state.active_df = None
 
     def test_simple_expression(self):
-        ok, out, err = self.py.execute("100/4")
+        ok, out, *_ = self.py.execute("100/4")
         assert ok
         assert "25" in out
 
     def test_arithmetic(self):
-        ok, out, err = self.py.execute("3 + 5 * 2")
+        ok, out, *_ = self.py.execute("3 + 5 * 2")
         assert ok
         assert "13" in out
 
     def test_print(self):
-        ok, out, err = self.py.execute('print("hello")')
+        ok, out, *_ = self.py.execute('print("hello")')
         assert ok
         assert "hello" in out
 
     def test_variable_assignment(self):
-        ok, out, err = self.py.execute("x = 42")
+        ok, out, *_ = self.py.execute("x = 42")
         assert ok
-        ok, out, err = self.py.execute("x")
+        ok, out, *_ = self.py.execute("x")
         assert ok
         assert "42" in out
 
