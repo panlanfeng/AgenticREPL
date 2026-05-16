@@ -167,6 +167,9 @@ class SessionState:
         self._last_known_cwd = ""
         self._context_stale = True
         self._stable_summary = None  # compaction summary, inserted after startup
+        self._cached_messages = None  # cache for build_conversation_messages
+        self._cached_conv_len = 0
+        self._cached_summary = None
         self._max_context_tokens = 128000  # DeepSeek default, overridable
         self._last_memory_extract_tokens = 0  # token count at last MEMORY.md write
         self._memory_file = os.path.join(SESSION_DIR, "MEMORY.md")
@@ -181,6 +184,9 @@ class SessionState:
     def reset_session(self):
         self._conversation = []
         self._stable_summary = None
+        self._cached_messages = None
+        self._cached_conv_len = 0
+        self._cached_summary = None
         self.session_log = []
         self._turn = 0
         self.last_dispatch_error = None
@@ -205,6 +211,12 @@ class SessionState:
         return True
 
     def build_conversation_messages(self, system_prompt):
+        # Return cached messages if nothing changed
+        conv_len = len(self._conversation)
+        if (self._cached_messages is not None
+                and self._cached_conv_len == conv_len
+                and self._cached_summary == self._stable_summary):
+            return self._cached_messages
         messages = [{"role": "system", "content": system_prompt}]
         agents_md = self._load_agents_md()
         if agents_md:
@@ -217,6 +229,9 @@ class SessionState:
             messages.append({"role": "user", "content": f"[Summary of earlier conversation]\n{self._stable_summary}"})
         for entry in self._conversation:
             messages.append(entry)
+        self._cached_messages = messages
+        self._cached_conv_len = conv_len
+        self._cached_summary = self._stable_summary
         return messages
 
     def _load_agents_md(self):
@@ -527,8 +542,22 @@ class SessionState:
         except Exception:
             pass
 
+    def save_state(self):
+        """Always persist critical session state so resume works after restart."""
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        state_data = {
+            "session_id": SESSION_ID,
+            "current_language": self.current_language,
+            "last_lang": self.last_lang,
+            "vars": {k: v for k, v in self.vars.items()},
+            "active_df": self.active_df,
+        }
+        with open(STATE_FILE, "w") as f:
+            json.dump(state_data, f, indent=2)
+
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
+            self.save_state()
             return
         os.makedirs(SESSION_DIR, exist_ok=True)
         state_data = {

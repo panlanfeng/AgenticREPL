@@ -40,6 +40,7 @@ class RExecutor:
         self._process = None
         self._read_timeout = 30
         self._stderr_lines = []
+        self._stderr_lock = threading.Lock()
         self._stderr_thread = None
 
     @property
@@ -56,6 +57,7 @@ class RExecutor:
             )
             os.set_blocking(self._process.stdout.fileno(), False)
             os.set_blocking(self._process.stderr.fileno(), False)
+            self._stderr_lock = threading.Lock()
             self._stderr_lines = []
             self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
             self._stderr_thread.start()
@@ -73,13 +75,15 @@ class RExecutor:
                     continue
                 stripped = line.rstrip('\n')
                 if stripped:
-                    self._stderr_lines.append(stripped)
+                    with self._stderr_lock:
+                        self._stderr_lines.append(stripped)
             # Process exited — drain any remaining stderr from the pipe buffer
             if self._process and self._process.stderr:
                 for line in self._process.stderr:
                     stripped = line.rstrip('\n')
                     if stripped:
-                        self._stderr_lines.append(stripped)
+                        with self._stderr_lock:
+                            self._stderr_lines.append(stripped)
         except Exception:
             pass
 
@@ -91,11 +95,13 @@ class RExecutor:
                 for line in self._process.stderr:
                     stripped = line.rstrip('\n')
                     if stripped:
-                        self._stderr_lines.append(stripped)
+                        with self._stderr_lock:
+                            self._stderr_lines.append(stripped)
             except Exception:
                 pass
-        lines = self._stderr_lines[:]
-        self._stderr_lines = []
+        with self._stderr_lock:
+            lines = self._stderr_lines[:]
+            self._stderr_lines = []
         return "\n".join(lines)
 
     def execute(self, code):

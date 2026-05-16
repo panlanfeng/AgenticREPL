@@ -88,8 +88,6 @@ class Dispatcher:
             if self._is_r(stripped):
                 return "unknown"
             return "shell"
-        if self._is_python(stripped):
-            return "python"
         if self._is_r(stripped):
             return "unknown"  # R is handled by LLM
         return "unknown"

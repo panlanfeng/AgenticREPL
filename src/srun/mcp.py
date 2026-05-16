@@ -120,8 +120,9 @@ class MCPServer:
             self._process.stdin.flush()
         except Exception as e:
             return False, str(e)
-        event = self._pending.get(request_id)
-        if event:
+        with self._response_lock:
+            event = self._pending.get(request_id)
+        if event and isinstance(event, threading.Event):
             if event.wait(timeout):
                 with self._response_lock:
                     result = self._pending.pop(request_id, None)
@@ -147,9 +148,11 @@ class MCPServer:
                 response = json.loads(line)
                 req_id = response.get("id")
                 if req_id is not None:
-                    event = self._pending.get(req_id)
-                    if event:
-                        self._pending[req_id] = response
+                    with self._response_lock:
+                        event = self._pending.get(req_id)
+                        if event:
+                            self._pending[req_id] = response
+                    if event and isinstance(event, threading.Event):
                         event.set()
             except (json.JSONDecodeError, Exception):
                 time.sleep(0.05)

@@ -95,12 +95,7 @@ class LLM:
         if not self.client:
             return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None
 
-        failure_text = (
-            f"The user typed: {user_input}\n"
-            + (f"The returned error:\n{error}\n\n" if error else "\n")
-            + f"Generate the correct command and execute it via run_command with no explaination."
-            #+ f"Do NOT explain the error — just fix and execute."
-        )
+        failure_text = f"{user_input}\nError: {error}" if error else user_input
 
         tools = TOOL_DEFINITIONS + mcp.all_tools()
 
@@ -116,18 +111,11 @@ class LLM:
 
         user_content = failure_text
         if state.current_language != state._llm_last_known_language:
-            change_msg = f"[Environment changed to: {state.current_language}"
-            if state.current_language != "shell":
-                change_msg += " — user entered session"
-            else:
-                change_msg += " — returned to shell"
-            change_msg += "]"
-            user_content = f"{change_msg}\n\n{user_content}"
+            user_content = f"[env: {state.current_language}]\n\n{user_content}"
             state._llm_last_known_language = state.current_language
         cwd = os.getcwd()
         if cwd != state._last_known_cwd:
             state._last_known_cwd = cwd
-            state._context_stale = True
         if state._context_stale:
             state._context_stale = False
             reminder = state.llm_context() + "\n" + state.workspace_context()
@@ -137,14 +125,14 @@ class LLM:
         elif not error:
             session_ctx = state.session_context()
             if session_ctx:
-                user_content += f"\n\n[Recent activity]\n{session_ctx}"
+                user_content += f"\n\n{session_ctx}"
 
         messages.append({"role": "user", "content": user_content})
 
         all_commands = []
         reasoning = False
         total_tokens = 0
-        MAX_TOKENS = 32000
+        MAX_TOKENS = state._max_context_tokens // 4  # response budget = 1/4 of context window
         while total_tokens < MAX_TOKENS:
             start = time.perf_counter()
             try:
@@ -222,6 +210,8 @@ class LLM:
                         try:
                             args = json.loads(tc.function.arguments)
                         except json.JSONDecodeError:
+                            messages.append({"role": "tool", "tool_call_id": tc.id,
+                                             "content": f"Error: failed to parse tool call arguments as JSON: {tc.function.arguments[:200]}"})
                             continue
                         if tc.function.name == "run_command":
                             cmd = args.get("command", "")
