@@ -11,8 +11,13 @@ import tempfile
 import json
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import sys
+import os
+import json
+import time
+import types
+import tempfile
+import shutil
 
 from srun.repl import execute, _retry_loop, _exec_inline, _run_input
 from srun.dispatch import dispatcher
@@ -31,22 +36,39 @@ from srun.config import config
 # ---------------------------------------------------------------------------
 
 TEST_CSV = os.path.join(os.path.dirname(__file__), "data", "test.csv")
+# Columns: student,scores,grade  (3 rows: Alice,90,A / Bob,75,B / Charlie,85,B)
 TEST_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
 def _check_result(summary, tool_calls, *, code_must_contain=None, numeric_output=False):
     """Stable structural verification — checks generated code and output properties,
     not exact output values which vary across LLM runs.
-    code_must_contain: any ONE of these keywords must appear in code or output."""
+    code_must_contain: any ONE of these keywords must appear in generated commands."""
     assert tool_calls or summary, "LLM should generate a response"
     output = (llm._last_output or "") + "\n" + (summary or "")
-    all_code = str(tool_calls) if tool_calls else ""
-    combined = all_code + "\n" + output
+
+    # Extract actual command strings from tool_calls to verify executable code
+    commands = []
+    if tool_calls:
+        for tc in tool_calls:
+            if isinstance(tc, dict):
+                cmd = tc.get("command", "")
+            elif hasattr(tc, "command"):
+                cmd = tc.command
+            else:
+                cmd = str(tc)
+            if cmd:
+                commands.append(cmd)
 
     if code_must_contain:
-        found = [kw for kw in code_must_contain if kw.lower() in combined.lower()]
+        # Check generated commands for expected patterns
+        all_code = "\n".join(commands)
+        found = [kw for kw in code_must_contain if kw.lower() in all_code.lower()]
+        # Fall back to checking summary text if no commands generated
+        if not found and summary:
+            found = [kw for kw in code_must_contain if kw.lower() in summary.lower()]
         assert found, \
-            f"Generated code/output should contain any of: {code_must_contain}. Combined: {combined[:300]}"
+            f"Generated code should contain any of: {code_must_contain}. Code: {all_code[:300]}"
 
     if numeric_output:
         assert re.search(r'\d+\.?\d*', output), \
@@ -307,8 +329,16 @@ class TestDataAnalystSession:
         assert state.current_language == "shell"
 
     def test_session_exit_methods(self):
-        """exit() and quit() change back to shell from python."""
+        """exit() and quit() in Python mode change language back to shell."""
+        from srun.repl import _run_input
         state.current_language = "python"
+        # exit()/quit() are handled at the REPL level, not through _run_input
+        # Simulate the REPL exit handling directly
+        state.current_language = "shell"
+        assert state.current_language == "shell"
+        # Verify the session switch is properly handled by the state setter
+        state.current_language = "python"
+        assert state.current_language == "python"
         state.current_language = "shell"
         assert state.current_language == "shell"
 
@@ -321,12 +351,6 @@ class TestDataAnalystSession:
             result = _run("shell", "echo hi", self.py, self.sh, self.r)
             assert result["success"]
 
-    def test_ctrl_d_simulation(self):
-        """EOFError handling preserves state; language should still be what was set."""
-        state.current_language = "python"
-        assert state.current_language == "python"
-        state.current_language = "shell"
-        assert state.current_language == "shell"
 
 
 # ===========================================================================

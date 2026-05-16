@@ -2,8 +2,6 @@
 """Systematic bug hunt for AgenticREPL."""
 import os, sys, json, tempfile, time, subprocess, shutil, traceback
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 ISSUES = []
 COUNTER = [0]
 

@@ -12,8 +12,13 @@ import contextlib
 import subprocess
 import shutil
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import sys
+import os
+import json
+import tempfile
+import shutil
+import time
+import platform
 
 from srun.executors.r_exec import RExecutor
 from srun.executors.shell_exec import ShellExecutor

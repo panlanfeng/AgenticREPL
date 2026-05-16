@@ -10,8 +10,12 @@ import subprocess
 import json
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+import sys
+import os
+import json
+import time
+import subprocess
+import tempfile
 
 from srun.repl import execute, print_result
 from srun.dispatch import dispatcher

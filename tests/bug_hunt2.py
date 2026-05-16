@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """30 scenario tests for AgenticREPL bug hunting."""
 import sys, os, json, tempfile, shutil, re, traceback
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 issues = []
 N = [0]

@@ -4,9 +4,14 @@ import os
 import sys
 import io
 import pytest
-from unittest import mock
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import sys
+import os
+import json
+import types
+import time
+import shutil
+import tempfile
+from unittest.mock import MagicMock, patch
 
 from srun.repl import execute
 from srun.dispatch import dispatcher
@@ -98,6 +103,13 @@ class TestToolCalls:
         summary, cmds = llm.run("find all csv files larger than 1MB")
         assert cmds is not None or summary is not None, \
             "LLM dispatch should return commands or summary"
+        if cmds:
+            assert len(cmds) > 0 and any(
+                (c.get("command", "") if isinstance(c, dict) else c)
+                for c in cmds
+            ), "LLM tool calls should contain executable commands"
+        if summary and not cmds:
+            assert len(summary) > 20, f"LLM summary too short: {summary[:50]}"
 
     @pytest.mark.slow
     @pytest.mark.llm
@@ -107,6 +119,13 @@ class TestToolCalls:
             error="grep: unrecognized option --nocolor")
         assert cmds is not None or summary is not None, \
             "LLM repair should return fixed command or summary"
+        if cmds:
+            assert len(cmds) > 0 and any(
+                (c.get("command", "") if isinstance(c, dict) else c)
+                for c in cmds
+            ), "LLM tool calls should contain executable commands"
+        if summary and not cmds:
+            assert len(summary) > 20, f"LLM summary too short: {summary[:50]}"
         if cmds:
             # Verify the fix is different from original
             first_cmd = cmds[0] if isinstance(cmds[0], str) else cmds[0].get("command", "")
@@ -126,19 +145,19 @@ class TestStreamingOutput:
             pytest.skip("No LLM client")
 
         # Create mock stream chunks
-        chunk1 = mock.MagicMock()
+        chunk1 = MagicMock()
         chunk1.usage = None
-        delta1 = mock.MagicMock()
+        delta1 = MagicMock()
         delta1.content = "Hello"
         delta1.tool_calls = None
-        chunk1.choices = [mock.MagicMock(delta=delta1)]
+        chunk1.choices = [MagicMock(delta=delta1)]
 
-        chunk2 = mock.MagicMock()
+        chunk2 = MagicMock()
         chunk2.usage = None
-        delta2 = mock.MagicMock()
+        delta2 = MagicMock()
         delta2.content = " world"
         delta2.tool_calls = None
-        chunk2.choices = [mock.MagicMock(delta=delta2)]
+        chunk2.choices = [MagicMock(delta=delta2)]
 
         mock_stream = iter([chunk1, chunk2])
 
@@ -158,31 +177,31 @@ class TestStreamingOutput:
         tool_call_data = {}
 
         # Simulate streaming chunks with tool_call
-        chunk1 = mock.MagicMock()
+        chunk1 = MagicMock()
         chunk1.usage = None
-        delta1 = mock.MagicMock()
+        delta1 = MagicMock()
         delta1.content = None
-        tc = mock.MagicMock()
+        tc = MagicMock()
         tc.index = 0
         tc.id = "call_1"
-        tc.function = mock.MagicMock()
+        tc.function = MagicMock()
         tc.function.name = "run_command"
         tc.function.arguments = '{"command":'
         delta1.tool_calls = [tc]
-        chunk1.choices = [mock.MagicMock(delta=delta1)]
+        chunk1.choices = [MagicMock(delta=delta1)]
 
-        chunk2 = mock.MagicMock()
+        chunk2 = MagicMock()
         chunk2.usage = None
-        delta2 = mock.MagicMock()
+        delta2 = MagicMock()
         delta2.content = None
-        tc2 = mock.MagicMock()
+        tc2 = MagicMock()
         tc2.index = 0
         tc2.id = None
-        tc2.function = mock.MagicMock()
+        tc2.function = MagicMock()
         tc2.function.name = ""
         tc2.function.arguments = '"ls -la"}'
         delta2.tool_calls = [tc2]
-        chunk2.choices = [mock.MagicMock(delta=delta2)]
+        chunk2.choices = [MagicMock(delta=delta2)]
 
         mock_stream = iter([chunk1, chunk2])
 
@@ -207,12 +226,12 @@ class TestStreamingOutput:
 
     def test_streaming_empty_response(self):
         """Streaming with no content or tool calls should return None."""
-        chunk = mock.MagicMock()
+        chunk = MagicMock()
         chunk.usage = None
-        delta = mock.MagicMock()
+        delta = MagicMock()
         delta.content = None
         delta.tool_calls = None
-        chunk.choices = [mock.MagicMock(delta=delta)]
+        chunk.choices = [MagicMock(delta=delta)]
 
         mock_stream = iter([chunk])
         content_parts = []
@@ -902,3 +921,56 @@ class TestOutputFormat:
             response_idx = next(i for i, l in enumerate(lines) if "Agent response:" in l)
             assert response_idx > code_idx, \
                 f"Agent response should appear after code. Code at line {code_idx}, response at line {response_idx}"
+
+
+class TestTokenTracking:
+    """Fast unit tests for token tracking and cache statistics."""
+
+    def setup_method(self):
+        from srun.llm import llm
+        llm.reset_cache()
+
+    def test_reset_cache_zeros_all(self):
+        from srun.llm import llm
+        llm._hit_tokens = 500
+        llm._miss_tokens = 200
+        llm.reset_cache()
+        assert llm._hit_tokens == 0
+        assert llm._miss_tokens == 0
+        assert llm.cache_hit_rate == 0
+
+    def test_track_usage_counts_hits(self):
+        from srun.llm import llm
+        usage = type("Usage", (), {"prompt_cache_hit_tokens": 100, "prompt_cache_miss_tokens": 50})()
+        llm._track_usage(usage)
+        assert llm._hit_tokens == 100
+        assert llm._miss_tokens == 50
+
+    def test_track_usage_handles_none(self):
+        from srun.llm import llm
+        llm._track_usage(None)
+        assert llm._hit_tokens == 0
+        assert llm._miss_tokens == 0
+
+    def test_track_usage_handles_missing_attrs(self):
+        from srun.llm import llm
+        usage = type("Usage", (), {})()
+        llm._track_usage(usage)
+        assert llm._hit_tokens == 0
+        assert llm._miss_tokens == 0
+
+    def test_cache_hit_rate(self):
+        from srun.llm import llm
+        llm._hit_tokens = 300
+        llm._miss_tokens = 100
+        assert llm.cache_hit_rate == 0.75
+
+    def test_cache_stats(self):
+        from srun.llm import llm
+        llm._hit_tokens = 200
+        llm._miss_tokens = 50
+        stats = llm.cache_stats
+        assert stats["hit_tokens"] == 200
+        assert stats["miss_tokens"] == 50
+        assert stats["total_tokens"] == 250
+        assert stats["rate"] == 0.8

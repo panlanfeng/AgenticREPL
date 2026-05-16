@@ -3,8 +3,11 @@
 import os
 import sys
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import sys
+import os
+import json
+import tempfile
+import time
 
 
 class TestTabCompletion:

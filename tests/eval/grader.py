@@ -45,4 +45,18 @@ def grade(hidden_goal, success_criteria, transcript_text):
         result = json.loads(summary)
         return int(result.get("score", 0)), result.get("reasoning", "No reasoning")
     except (json.JSONDecodeError, ValueError, KeyError):
-        return 0, f"Failed to parse grader: {summary[:200]}"
+        # One retry before giving up — use -1 to distinguish parse failure from score 0
+        try:
+            kwargs = {"model": config.model, "messages": [
+                {"role": "user", "content": f"Return ONLY valid JSON with score and reasoning. Previous response was unparseable: {summary[:500]}"}
+            ], "temperature": 0.0, "max_tokens": 300, "stream": False}
+            resp = llm.client.chat.completions.create(**kwargs)
+            retry_summary = resp.choices[0].message.content.strip()
+            if "{" in retry_summary:
+                start = retry_summary.index("{")
+                end = retry_summary.rindex("}") + 1
+                retry_summary = retry_summary[start:end]
+            result = json.loads(retry_summary)
+            return int(result.get("score", 0)), result.get("reasoning", "No reasoning")
+        except Exception:
+            return -1, f"Failed to parse grader (parse error): {summary[:200]}"

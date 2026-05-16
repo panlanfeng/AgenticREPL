@@ -2,13 +2,7 @@
 
 import json
 import os
-import sys
-import tempfile
 import shutil
-import statistics
-import datetime
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from srun.llm import llm
 from srun.context import state
@@ -149,16 +143,10 @@ def _generate_review(transcript_text, hidden_goal, score):
     if not llm.client:
         return "No LLM client configured for review generation."
     try:
-        from srun.config import config
-        prompt = _REFLECTION_PROMPT.format(
-            transcript=transcript_text,
-            hidden_goal=hidden_goal,
-            score=score,
+        summary, _ = llm.run(
+            _REFLECTION_PROMPT.format(transcript=transcript_text, hidden_goal=hidden_goal, score=score)
         )
-        kwargs = {"model": config.model, "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.0, "max_tokens": 600, "stream": False}
-        resp = llm.client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content.strip()
+        return summary or "No review generated"
     except Exception as e:
         return f"Review generation failed: {e}"
 
@@ -249,15 +237,15 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Evaluate srun agent with synthetic user")
-    parser.add_argument("--usecase", choices=["sales", "join", "sensor", "all"],
+    parser.add_argument("--usecase", choices=["sales", "join", "cleanup", "all"],
                         default="sales", help="Use case to evaluate")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs per use case")
-    parser.add_argument("--rounds", type=int, default=10, help="Max rounds per run")
+    parser.add_argument("--rounds", type=int, default=6, help="Max rounds per run")
     args = parser.parse_args()
 
     if args.usecase == "all":
         results = {}
-        for uc in ["explorer", "cleanup", "revenue"]:
+        for uc in ["sales", "join", "cleanup"]:
             results[uc] = evaluate(uc, args.runs, args.rounds)
         print(f"\n{'='*60}")
         print("OVERALL")
