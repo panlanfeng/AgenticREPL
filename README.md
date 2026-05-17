@@ -4,8 +4,9 @@ AgenticREPL unifies your terminal and AI agent into one. Talk to your terminal i
 
 **Why not just use a coding agent?** AgenticREPL puts code execution first and adds no additional latency unless your input needs repair or it is in natural language. Regular coding agents send every keystroke through an LLM — heavyweight and slow. We need AI agents that can do end-to-end work, but also agents that execute efficiently and quietly help only when needed.
 
-For exploratory data analysis in particular, iterative data exploration gives researchers their first intuition about a problem. Some syntax in well-known packages like `dplyr`, `pandas`, or `ggplot2` is too verbose to remember. AgenticREPL lets you explore data in any syntax, or just in plain English. For example, this runs correctly in AgenticREPL's R session: `mtcars.filter(wt>5).mean(X) for X in (gear, carb)`. See more examples below.
+For exploratory data analysis in particular, iterative data exploration gives researchers their first intuition about a problem. Some syntax in well-known packages like `dplyr`, `pandas`, or `ggplot2` is too verbose to remember. AgenticREPL lets you explore data in any syntax, or just in plain English. For example, this runs correctly in AgenticREPL's R session: `mtcars.filter(wt>5).mean(X) for X in (gear, carb)`. 
 
+See more examples below.
 
 ```bash
 $ srun
@@ -135,36 +136,20 @@ shell> pritn('hello world')
   hello world
 ```
 
-## File execution
-
-```bash
-$ srun deploy.sh
-✓ docker build -t app .                         3200ms
-✗ kubectl apply -f k8s/deploy.yaml                35ms
-  | kubectl apply -f k8s/deployment.yaml          # LLM fixes typo, resumes
-✓ kubectl apply -f k8s/deployment.yaml            28ms
-```
 
 ## Quick start
+Install via Homebrew or pip, then start with `srun`.
 
 ```bash
+# Homebrew (macOS/Linux)
+brew tap panlanfeng/agenticrepl
+brew install agenticrepl
+
+# Or pip
 pip install git+https://github.com/panlanfeng/AgenticREPL.git
 
-# Set your provider's API key — auto-detected (no need to set base/model)
-export DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
-# export OPENAI_API_KEY="sk-xxx"     # for OpenAI
-# export ANTHROPIC_API_KEY="sk-xxx"  # for Anthropic
-
 srun                                # start the REPL
-srun> /configure                     # or configure interactively in REPL
 ```
-
-Or set provider via config file (`~/.srun/user_config.json`):
-```json
-{ "provider": "openai", "api_key": "sk-..." }
-```
-
-Supported providers: deepseek (default), openai, anthropic, google, glm, kimi, minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom.
 
 If `srun` is not found after install:
 ```bash
@@ -172,7 +157,28 @@ which srun
 export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"
 ```
 
-No API key? `srun` still works as a smart REPL — tab completion, history, Python/R sessions, quick fixes.
+
+Use your API key from the major llm providers. 
+```
+# Set your provider's API key in your .zshrc or .bashrc — auto-detected if you have have it loaded to shell environment
+DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
+#OPENAI_API_KEY="sk-xxx"     # for OpenAI
+#ANTHROPIC_API_KEY="sk-xxx"  # for Anthropic
+```
+
+Or set provider via config file (`~/.srun/user_config.json`):
+```json
+{ "provider": "openai", "api_key": "sk-..." }
+```
+
+Or 
+```
+srun> /configure                     # or configure interactively in REPL
+```
+
+Supported providers: deepseek (default), openai, anthropic, google, glm, kimi, minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom.
+
+
 
 ## License
 

@@ -3,9 +3,9 @@ class Agenticrepl < Formula
 
   desc "Smart terminal REPL that thinks with you — natural language to executable commands"
   homepage "https://github.com/panlanfeng/AgenticREPL"
-  url "https://github.com/panlanfeng/AgenticREPL/archive/refs/heads/main.tar.gz"
-  version "0.1.0"
-  sha256 "d32bf8bbc1430f8c9e813c0ebd249f4dc2838a181fe3220c2d09e2f026a31001"
+  url "https://github.com/panlanfeng/AgenticREPL/archive/refs/tags/v0.1.1.tar.gz"
+  version "0.1.1"
+  sha256 "b1fc9558c6b84dc6cc272b6014445a23dee43585d6bb8601fb5aaa4b23cf6ace"
   license "MIT"
 
   depends_on "python@3.13"
