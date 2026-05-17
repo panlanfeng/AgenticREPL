@@ -165,7 +165,9 @@ export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))
 AgenticREPL auto-detects provider API keys from environment variables. Set one in your `~/.zshrc`:
 
 ```bash
-export DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
+export DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek or
+#OPENAI_API_KEY="sk-xxx"     # for OpenAI
+#ANTHROPIC_API_KEY="sk-xxx"  # for Anthropic
 ```
 
 No need to set model names or base URLs — they're filled from presets automatically.
