@@ -170,7 +170,7 @@ class SessionState:
         self._cached_messages = None  # cache for build_conversation_messages
         self._cached_conv_len = 0
         self._cached_summary = None
-        self._max_context_tokens = 128000  # DeepSeek default, overridable
+        self._max_context_tokens = 256000  # per-turn context window
         self._last_memory_extract_tokens = 0  # token count at last MEMORY.md write
         self._memory_file = os.path.join(SESSION_DIR, "MEMORY.md")
         os.makedirs(BASE_DIR, exist_ok=True)

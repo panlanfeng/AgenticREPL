@@ -69,11 +69,16 @@ def read_file(path, lines=None):
         return f"File not found: {path}"
     try:
         size = os.path.getsize(resolved)
+        if size > 256 * 1024:
+            return (f"File too large ({size}B > 256KB). Use offset and limit parameters "
+                    f"to read selected lines, or grep_search for specific patterns.")
         with open(resolved, encoding="utf-8", errors="replace") as f:
             if lines:
                 content = "".join(f.readline() for _ in range(lines))
             else:
                 content = f.read()
+        if len(content) > 25000:
+            content = content[:25000] + "\n... (truncated, use offset/limit or grep_search for more)"
         content = _redact_secrets(resolved, content)
         return f"--- {resolved} ({size}B) ---\n{content}"
     except Exception as e:
