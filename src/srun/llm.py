@@ -165,15 +165,15 @@ class LLM:
                         reasoning_parts.append(delta.reasoning_content)
                         if not reasoning:
                             reasoning = True
-                            print("\033[2mReasoning: \033[0m", end="", flush=True)
+                            print("\033[2mReasoning: ", end="", flush=True)
                         print(delta.reasoning_content, end="", flush=True)
                     if delta.content:
                         if first_content:
                             first_content = False
                             if reasoning:
-                                self._agent_text = "\n\033[2mAgent response: \033[0m"
+                                self._agent_text = "\n\033[2mAgent response: "
                             else:
-                                self._agent_text = "\033[2mAgent response: \033[0m"
+                                self._agent_text = "\033[2mAgent response: "
                         self._agent_text += delta.content
                         content_parts.append(delta.content)
                     if delta.tool_calls:

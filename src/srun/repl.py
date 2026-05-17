@@ -851,7 +851,7 @@ def print_result(result, elapsed_ms):
 
     agent_text = result.get("agent_text", "")
     if agent_text:
-        print(agent_text, flush=True)
+        print(agent_text + "\033[0m", flush=True)
 
     if llm:
         from .llm import llm as llm_mod
