@@ -261,7 +261,7 @@ class SessionState:
         new_msgs = [{"role": "user", "content": user_msg}]
         if error_output:
             new_msgs.append({"role": "user", "content": f"Command failed with error:\n{error_output}"})
-        new_msgs.append({"role": "assistant", "content": json.dumps({"code": assistant_code})})
+        new_msgs.append({"role": "assistant", "content": assistant_code})
         tail = self._conversation[-len(new_msgs):] if len(self._conversation) >= len(new_msgs) else []
         if tail != new_msgs:
             self._conversation.extend(new_msgs)

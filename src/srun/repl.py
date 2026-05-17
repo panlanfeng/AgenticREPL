@@ -623,7 +623,7 @@ def _log_turn(user_input, result, elapsed_ms):
         code = generated or user_input
         if code:
             state.add_conversation_turn(
-                user_msg=f"The user typed: {user_input}",
+                user_msg=user_input,
                 assistant_code=code,
                 error_output=None,
             )
