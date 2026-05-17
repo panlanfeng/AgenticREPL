@@ -351,11 +351,13 @@ class SessionState:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _load_conversation_state(self):
-        """Restore _stable_summary from the last compaction snapshot in history.
-        _conversation starts fresh each session — only the summary persists."""
+        """Restore _stable_summary + _conversation from history file.
+        llm_conversation entries store deltas (only new messages per turn);
+        compaction_snapshot resets the conversation and sets the summary."""
         if not os.path.isfile(self.full_history_path):
             return
         best_summary = None
+        conversation = []
         try:
             with open(self.full_history_path, "r") as f:
                 for line in f:
@@ -368,8 +370,13 @@ class SessionState:
                         continue
                     if entry.get("type") == "compaction_snapshot":
                         best_summary = entry.get("summary")
+                        conversation = []  # reset — only keep post-compaction turns
+                    elif entry.get("type") == "llm_conversation":
+                        conversation.extend(entry.get("messages", []))
             if best_summary is not None:
                 self._stable_summary = best_summary
+            if conversation:
+                self._conversation = conversation
         except Exception:
             pass
 

@@ -422,7 +422,7 @@ def _run_repl(py_exec, sh_exec, r_exec):
             from .llm import llm as llm_mod
             s = llm_mod.cache_stats
             if s["total_tokens"] > 0:
-                print(f"\033[2m  prompt cache: {s['rate']:.0%} hit ({s['total_tokens']} tokens)\033[0m")
+                print(f"\033[2m  prompt cache: {s['rate']:.0%} hit ({s['hit_tokens']} hit / {s['miss_tokens']} miss / {s['total_tokens']} total)\033[0m")
             else:
                 print("\033[2m  no LLM usage yet\033[0m")
             continue
