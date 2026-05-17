@@ -129,6 +129,7 @@ class LLM:
 
         messages.append({"role": "user", "content": user_content})
         conv_start = len(messages)  # everything after this is the LLM conversation turn
+        prev_log_len = conv_start   # track last logged position for delta logging
 
         all_commands = []
         reasoning = False
@@ -280,7 +281,8 @@ class LLM:
                                     result = execute_tool(tc.function.name, args)
                                 content = _truncate_tool_result(tc.function.name, result)
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-                    state.log_conversation(messages[conv_start:])
+                    state.log_conversation(messages[prev_log_len:])
+                    prev_log_len = len(messages)
                     self._maybe_compact()
                     if not exec_callback:
                         return text if text else None, all_commands if all_commands else None, messages[conv_start:]
@@ -308,13 +310,15 @@ class LLM:
                 # Append final assistant text to messages so conversation is complete
                 if summary:
                     messages.append({"role": "assistant", "content": summary})
-                state.log_conversation(messages[conv_start:])
+                state.log_conversation(messages[prev_log_len:])
+                prev_log_len = len(messages)
                 self._maybe_compact()
                 return summary, all_commands if all_commands else None, messages[conv_start:]
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
-                state.log_conversation(messages[conv_start:])
+                state.log_conversation(messages[prev_log_len:])
+                prev_log_len = len(messages)
                 return f"LLM response error: {e}", None, None
             except Exception as e:
                 err_msg = str(e).lower()
@@ -325,10 +329,12 @@ class LLM:
                     return ("Authentication failed — check your API key. Set DEEPSEEK_API_KEY, OPENAI_API_KEY,"
                             " or add api_key to ~/.srun/user_config.json. Type /configure for help."), None, None
                 state.last_dispatch_error = str(e)
-                state.log_conversation(messages[conv_start:])
+                state.log_conversation(messages[prev_log_len:])
+                prev_log_len = len(messages)
                 return f"LLM error: {e}", None, None
 
-        state.log_conversation(messages[conv_start:])
+        state.log_conversation(messages[prev_log_len:])
+        prev_log_len = len(messages)
         return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None, None
 
     def _track_usage(self, usage):

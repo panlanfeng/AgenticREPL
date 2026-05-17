@@ -272,7 +272,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         if summary:
             if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget", "Authentication failed")):
                 return {"success": False, "output": summary, "llm_used": False, "language": lang}
-            return {"success": True, "output": "", "llm_used": True, "language": "text"}
+            return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary}
         return {
             "success": False,
             "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
@@ -338,7 +338,6 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             "success": True,
             "output": "",
             "llm_used": True, "language": lang,
-            "generated_code": None,  # shown inline during llm.run()
             "summary": summary,
             "agent_text": llm._agent_text,
         }
@@ -346,7 +345,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         # If summary contains an LLM error, show it directly
         if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget")):
             return {"success": False, "output": summary, "llm_used": False, "language": lang}
-        return {"success": True, "output": "", "llm_used": True, "language": "text"}
+        return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary}
     return {
         "success": False,
         "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
@@ -618,26 +617,17 @@ def _abort_executors(py_exec, sh_exec, r_exec):
 def _log_turn(user_input, result, elapsed_ms):
     fixed = result.get("fixed_code")
     generated = result.get("generated_code")
+    summary = result.get("summary")
     llm_used = result.get("llm_used", False)
     success = result.get("success", False)
     lang = result.get("language", "")
     repair_errors = result.get("repair_errors", [])
 
-    if llm_used and not fixed:
-        code = generated or user_input
-        if code:
-            state.add_conversation_turn(
-                user_msg=user_input,
-                assistant_code=code,
-                error_output=None,
-            )
-
     state.log_entry(
-        type="llm_repair" if (llm_used and fixed) else
-             "llm_dispatch" if (llm_used and generated) else "fast",
+        type="llm" if llm_used else "fast",
         input=user_input,
-        code=fixed or generated or user_input,
-        llm_generated=fixed or generated,
+        code=fixed or generated or summary or user_input,
+        llm_generated=fixed or generated or summary,
         language=lang,
         success=success,
         elapsed_ms=int(elapsed_ms),

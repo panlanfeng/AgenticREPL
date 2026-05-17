@@ -670,11 +670,8 @@ class SessionState:
 
         if tp == "fast":
             return f"#{turn} {code} {ok} {ms}ms"
-        if tp == "llm_dispatch":
+        if tp == "llm":
             return f"#{turn} \"{inp}\" → {gen} {ok} {ms}ms"
-        if tp == "llm_repair":
-            err_short = t.replace('\n', '; ')[:60] if t else ""
-            return f"#{turn} \"{inp}\" err: {err_short} → fix: {gen} {ok} {ms}ms"
         return f"#{turn} {inp[:60]} {ok}"
 
 
