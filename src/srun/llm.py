@@ -127,8 +127,8 @@ class LLM:
             if session_ctx:
                 user_content += f"\n\n{session_ctx}"
 
+        conv_start = len(messages)  # position before user message — delta includes user + LLM response
         messages.append({"role": "user", "content": user_content})
-        conv_start = len(messages)  # everything after this is the LLM conversation turn
         prev_log_len = conv_start   # track last logged position for delta logging
 
         all_commands = []
