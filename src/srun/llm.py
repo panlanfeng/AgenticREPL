@@ -154,6 +154,7 @@ class LLM:
                 tool_call_data = {}
                 usage = None
                 first_content = True
+                reasoning_open = False
 
                 for chunk in stream:
                     if chunk.usage:
@@ -163,11 +164,15 @@ class LLM:
                         continue
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                         reasoning_parts.append(delta.reasoning_content)
-                        if not reasoning:
+                        if not reasoning_open:
+                            reasoning_open = True
                             reasoning = True
                             print("\033[2mReasoning: ", end="", flush=True)
                         print(delta.reasoning_content, end="", flush=True)
                     if delta.content:
+                        if reasoning_open:
+                            print("\033[0m", flush=True)
+                            reasoning_open = False
                         if first_content:
                             first_content = False
                             if reasoning:
@@ -177,6 +182,9 @@ class LLM:
                         self._agent_text += delta.content
                         content_parts.append(delta.content)
                     if delta.tool_calls:
+                        if reasoning_open:
+                            print("\033[0m", flush=True)
+                            reasoning_open = False
                         for tc in delta.tool_calls:
                             idx = tc.index
                             if idx not in tool_call_data:
@@ -189,6 +197,9 @@ class LLM:
                                 tool_call_data[idx]["arguments"] += tc.function.arguments or ""
 
                 if content_parts or reasoning:
+                    if reasoning_open:
+                        print("\033[0m", flush=True)
+                        reasoning_open = False
                     print(flush=True)
 
                 self._track_usage(usage)
