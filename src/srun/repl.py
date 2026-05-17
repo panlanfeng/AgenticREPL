@@ -274,7 +274,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         if summary:
             if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget", "Authentication failed")):
                 return {"success": False, "output": summary, "llm_used": True, "language": lang}
-            return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary}
+            return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary, "agent_text": llm._agent_text}
         return {
             "success": False,
             "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
@@ -347,7 +347,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         # If summary contains an LLM error, show it directly
         if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget")):
             return {"success": False, "output": summary, "llm_used": True, "language": lang}
-        return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary}
+        return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary, "agent_text": llm._agent_text}
     return {
         "success": False,
         "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
