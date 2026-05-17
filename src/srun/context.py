@@ -274,6 +274,7 @@ class SessionState:
         tail = self._conversation[-len(messages):] if len(self._conversation) >= len(messages) else []
         if tail != messages:
             self._conversation.extend(messages)
+            self._cached_messages = None  # invalidate — conversation changed
 
     def _approx_tokens(self, text):
         """Rough token count: ~3.5 chars per token for English + code."""
@@ -331,6 +332,7 @@ class SessionState:
         cutoff = assistant_indices[-6]
         self._stable_summary = summary
         self._conversation = self._conversation[cutoff:]
+        self._cached_messages = None  # invalidate — conversation truncated + summary changed
         self._write_compaction_snapshot()
         return True
 
