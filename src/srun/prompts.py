@@ -14,6 +14,11 @@ Output exepctation:
 - Only do End-of-turn summary if the user explicitly requests it.
 - Do not repeat the user request in reasoning or response.
 
+Task management:
+- For complex multi-step tasks, use the todowrite tool to break down and track your work.
+- Mark each task as completed as soon as you are done — do not batch completions.
+- Keep the user updated on your progress as you complete each step.
+
 Ask for user permission before:
 - installing packages
 - deleting

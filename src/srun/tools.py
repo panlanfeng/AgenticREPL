@@ -360,6 +360,31 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "todowrite",
+            "description": "Create and maintain a structured task list for the current session. Tracks progress and organizes multi-step work.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {"type": "string", "description": "Brief task description"},
+                                "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"]},
+                                "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+                            },
+                            "required": ["content", "status", "priority"],
+                        },
+                    },
+                },
+                "required": ["todos"],
+            },
+        },
+    },
 ]
 
 def _run_command(command):
@@ -456,6 +481,28 @@ def grep_search(pattern, path=".", context_lines=2):
         return f"Error searching: {e}"
 
 
+def todowrite(todos):
+    """Save todos to session directory, return summary with reminder."""
+    from .context import state
+    os.makedirs(state.outputs_dir, exist_ok=True)
+    path = os.path.join(state.outputs_dir, "todos.json")
+    with open(path, "w") as f:
+        json.dump(todos, f, indent=2)
+    counts = {"pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
+    for t in todos:
+        counts[t.get("status", "pending")] = counts.get(t.get("status", "pending"), 0) + 1
+    parts = []
+    for status in ["in_progress", "pending", "completed", "cancelled"]:
+        if counts[status] > 0:
+            parts.append(f"{counts[status]} {status}")
+    status_line = ", ".join(parts) if parts else "empty"
+    return (
+        f"Todos have been modified successfully: {status_line}. "
+        f"Ensure that you continue to use the todo list to track your progress. "
+        f"Please proceed with the current tasks if applicable."
+    )
+
+
 TOOL_HANDLERS = {
     "get_context": get_context,
     "inspect_command": inspect_command,
@@ -465,6 +512,7 @@ TOOL_HANDLERS = {
     "grep_search": grep_search,
     "file_edit": file_edit,
     "file_write": file_write,
+    "todowrite": todowrite,
     # Legacy tool names preserved for backward compat
     "get_command_help": get_command_help,
     "search_files": search_files,
