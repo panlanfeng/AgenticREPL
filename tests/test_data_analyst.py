@@ -376,7 +376,7 @@ class TestDataAnalystLLM:
 
     def test_nl_load_csv_into_dataframe(self):
         """LLM should load CSV into a dataframe — verify code uses read_csv or shape check."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"load {TEST_CSV} into a dataframe and print its shape and columns",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -385,7 +385,7 @@ class TestDataAnalystLLM:
 
     def test_nl_read_csv_show_head(self):
         """LLM should read CSV and print first rows — verify code uses head() or head command."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"print the first 3 data rows of {TEST_CSV}",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -396,7 +396,7 @@ class TestDataAnalystLLM:
 
     def test_nl_filter_rows(self):
         """LLM should filter CSV rows — verify code uses awk/grep/filter with score condition."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"filter {TEST_CSV} to show only rows where scores > 80",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -405,7 +405,7 @@ class TestDataAnalystLLM:
 
     def test_nl_filter_python_dataframe(self):
         """LLM should filter dataframe by grade — verify code uses pandas filter/query."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"load {TEST_CSV} into a pandas dataframe, then filter rows where grade is A and print them",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -416,7 +416,7 @@ class TestDataAnalystLLM:
 
     def test_nl_group_by_region(self):
         """LLM should group by grade and compute mean — verify code uses groupby/mean/aggregate."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"load {TEST_CSV} and group by grade calculate the mean scores for each grade",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -425,7 +425,7 @@ class TestDataAnalystLLM:
 
     def test_nl_sort_descending(self):
         """LLM should sort by scores descending — verify code uses sort/order with descending."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"sort the data in {TEST_CSV} by scores in descending order",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -436,7 +436,7 @@ class TestDataAnalystLLM:
         """LLM should generate R code for mean(1:100) — verify code uses mean/c/seq."""
         if not self.r_available:
             pytest.skip("R not available")
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "create a sequence from 1 to 100 and find the mean using R",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -445,7 +445,7 @@ class TestDataAnalystLLM:
 
     def test_nl_python_list_squares(self):
         """LLM should generate squares 1..10 — verify code uses range/list/for/**. """
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "create a list of squares from 1 to 10 in Python",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -454,7 +454,7 @@ class TestDataAnalystLLM:
 
     def test_nl_find_all_csv_files(self):
         """LLM should find CSV files — verify code uses find/ls with *.csv pattern."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"find all csv files in {TEST_DATA_DIR}",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -465,7 +465,7 @@ class TestDataAnalystLLM:
 
     def test_nl_show_first_5_rows(self):
         """LLM should show first rows — verify code uses head/cat with row limit."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"print the first 5 data rows of {TEST_CSV}",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -474,7 +474,7 @@ class TestDataAnalystLLM:
 
     def test_nl_average_of_column(self):
         """LLM should compute average of scores — verify code uses mean/avg/sum and numeric output."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"what is the average of the scores column in {TEST_CSV}?",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -483,7 +483,7 @@ class TestDataAnalystLLM:
 
     def test_nl_create_dataframe(self):
         """LLM should create a dataframe with columns — verify code uses DataFrame/columns."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "create a pandas dataframe with columns name, age, score and 3 rows of data, then print it",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -494,7 +494,7 @@ class TestDataAnalystLLM:
         """LLM should filter and write to file — verify code uses filter + write/redirect."""
         tmpf = "/tmp/srun_llm_output.csv"
         try:
-            summary, tool_calls = llm.run(
+            summary, tool_calls, _ = llm.run(
                 f"load {TEST_CSV}, filter for scores > 80, and write the results to {tmpf}",
                 exec_callback=_exec_inline(self.py, self.sh, self.r),
             )
@@ -510,7 +510,7 @@ class TestDataAnalystLLM:
 
     def test_nl_count_lines_in_py_files(self):
         """LLM should count lines in .py files — verify code uses wc/count and numeric output."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"count the total number of lines in all .py files in {TEST_DATA_DIR}",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -531,7 +531,7 @@ class TestDataAnalystLLM:
 
     def test_verify_run_command_language_field(self):
         """LLM tool calls should include a 'language' field."""
-        summary, tool_calls = llm.run(f"list files in the current directory")
+        summary, tool_calls, _ = llm.run(f"list files in the current directory")
         if tool_calls:
             for tc in tool_calls:
                 if isinstance(tc, dict):
@@ -541,7 +541,7 @@ class TestDataAnalystLLM:
 
     def test_llm_run_returns_commands(self):
         """llm.run should return tool calls for executable tasks."""
-        summary, tool_calls = llm.run("echo hello")
+        summary, tool_calls, _ = llm.run("echo hello")
         assert tool_calls is not None or summary is not None
 
     def test_llm_run_language_for_r(self):
@@ -550,7 +550,7 @@ class TestDataAnalystLLM:
             pytest.skip("R not available")
         state.current_language = "shell"
         state._llm_last_known_language = "shell"
-        summary, tool_calls = llm.run("compute mean of c(1,2,3,4,5) in R")
+        summary, tool_calls, _ = llm.run("compute mean of c(1,2,3,4,5) in R")
         if tool_calls:
             for tc in tool_calls:
                 if isinstance(tc, dict) and tc.get("language"):
@@ -578,7 +578,7 @@ class TestDataAnalystLLMDeep:
 
     def test_sort_descending_output_order(self):
         """Verify sort uses correct sort keywords not exact output values."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"sort {TEST_CSV} by scores column from highest to lowest and print all rows",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -587,7 +587,7 @@ class TestDataAnalystLLMDeep:
 
     def test_filter_and_compute_average(self):
         """Multi-step: filter scores > 70, then compute average — verify code and numeric output."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"from {TEST_CSV}, keep only rows with scores above 70, then compute the average of the remaining scores",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -602,7 +602,7 @@ class TestDataAnalystLLMDeep:
             approved["called"] = True
             return "no"
 
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "please try to install a package called nonexistent_pkg_12345",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
             ask_user_callback=deny_cb,
@@ -628,7 +628,7 @@ class TestDataAnalystLLMDeep:
             original_cwd = os.getcwd()
             os.chdir(tmp_dir)
             try:
-                summary, tool_calls = llm.run(
+                summary, tool_calls, _ = llm.run(
                     "find a CSV file anywhere in this directory tree, read it, and compute the total revenue",
                     exec_callback=_exec_inline(self.py, self.sh, self.r),
                 )
@@ -641,7 +641,7 @@ class TestDataAnalystLLMDeep:
 
     def test_repair_fix_does_not_repeat_same_error(self):
         """LLM repairing a typo must not output the same invalid command."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "grpe Alice",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -655,7 +655,7 @@ class TestDataAnalystLLMDeep:
 
     def test_environment_aware_grep_flags(self):
         """LLM should NOT use GNU-only flags (--color=always) on macOS without ggrep."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"find lines containing 'student' in {TEST_CSV} with colored output",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -681,7 +681,7 @@ class TestDataAnalystLLMDeep:
             asked["called"] = True
             return "yes"
         try:
-            summary, tool_calls = llm.run(
+            summary, tool_calls, _ = llm.run(
                 f"delete the file {tmpf}",
                 exec_callback=_exec_inline(self.py, self.sh, self.r),
                 ask_user_callback=approve_cb,
@@ -705,7 +705,7 @@ class TestDataAnalystLLMDeep:
             asked = True
             return "no"
         try:
-            summary, tool_calls = llm.run(
+            summary, tool_calls, _ = llm.run(
                 f"delete the file {tmpf}",
                 exec_callback=_exec_inline(self.py, self.sh, self.r),
                 ask_user_callback=deny_cb,
@@ -745,7 +745,7 @@ class TestDataAnalystLLMRepair:
         state._context_injected = True
         state.current_language = "shell"
         # First call with a bad flag
-        summary_a, cmds_a = llm.run(
+        summary_a, cmds_a, _ = llm.run(
             "grep --nonexist-flag foo /dev/null",
             error="grep: unrecognized option '--nonexist-flag'",
         )
@@ -753,7 +753,7 @@ class TestDataAnalystLLMRepair:
         if cmds_a:
             first_fix = cmds_a[0] if isinstance(cmds_a[0], str) else cmds_a[0].get("command", "")
             # Call again with the SAME error to check NON-looping behavior
-            summary_b, cmds_b = llm.run(
+            summary_b, cmds_b, _ = llm.run(
                 "grep --nonexist-flag foo /dev/null",
                 error="grep: unrecognized option '--nonexist-flag'",
             )
@@ -772,7 +772,7 @@ class TestDataAnalystLLMRepair:
         state._context_injected = True
         state.current_language = "r"
         state._llm_last_known_language = "r"
-        summary, cmds = llm.run(
+        summary, cmds, _ = llm.run(
             "use dplyr to group mtcars by cyl and calculate mean mpg"
         )
         assert summary is not None or cmds is not None
@@ -793,7 +793,7 @@ class TestDataAnalystLLMRepair:
         state._context_injected = True
         state.current_language = "shell"
         state._llm_last_known_language = "shell"
-        summary, cmds = llm.run(
+        summary, cmds, _ = llm.run(
             "find the top 5 largest files and calculate their total size",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -823,7 +823,7 @@ class TestDataAnalystWorkflows:
 
     def test_workflow_load_filter_group_summarize(self):
         """Load CSV → filter → group → summarize — verify multi-step code."""
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             f"load {TEST_CSV} into a dataframe, filter rows where scores > 70, "
             f"then group by grade and compute mean scores for each grade. Print the result.",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
@@ -860,7 +860,7 @@ class TestDataAnalystWorkflows:
         try:
             with open(tmp_csv, "w") as f:
                 f.write("name,value\nA,10\nB,30\nC,20\nD,40\nE,15\n")
-            summary, tool_calls = llm.run(
+            summary, tool_calls, _ = llm.run(
                 f"sort {tmp_csv} by the value column numerically and print only rows where value > 20",
                 exec_callback=_exec_inline(self.py, self.sh, self.r),
             )

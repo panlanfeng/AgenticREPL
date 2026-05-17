@@ -53,7 +53,7 @@ class TestIntegration:
         from srun.repl import _exec_inline
         if not llm.client:
             pytest.skip("LLM API key not configured")
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "grep --nonexist Alice tests/data/test.csv",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )
@@ -87,7 +87,7 @@ class TestIntegration:
         from srun.repl import _exec_inline
         if not llm.client:
             pytest.skip("LLM API key not configured")
-        summary, tool_calls = llm.run(
+        summary, tool_calls, _ = llm.run(
             "ls all inverse order",
             exec_callback=_exec_inline(self.py, self.sh, self.r),
         )

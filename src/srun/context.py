@@ -266,6 +266,15 @@ class SessionState:
         if tail != new_msgs:
             self._conversation.extend(new_msgs)
 
+    def extend_conversation(self, messages):
+        """Append LLM conversation messages (assistant, tool) to conversation history.
+        Deduplicates against the tail of the existing conversation."""
+        if not messages:
+            return
+        tail = self._conversation[-len(messages):] if len(self._conversation) >= len(messages) else []
+        if tail != messages:
+            self._conversation.extend(messages)
+
     def _approx_tokens(self, text):
         """Rough token count: ~3.5 chars per token for English + code."""
         return max(1, len(text) // 3)

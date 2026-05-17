@@ -43,7 +43,7 @@ class Repairer:
         quick = apply_quick_fix(original_input, error_message)
         if quick:
             return quick, None
-        summary, tool_calls = llm.run(original_input, error=error_message, ask_user_callback=_ask_user)
+        summary, tool_calls, _ = llm.run(original_input, error=error_message, ask_user_callback=_ask_user)
         if tool_calls and len(tool_calls) > 0:
             tc = tool_calls[0]
             if isinstance(tc, dict):

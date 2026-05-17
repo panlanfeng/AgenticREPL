@@ -93,7 +93,7 @@ class LLM:
 
     def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
         if not self.client:
-            return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None
+            return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None, None
 
         failure_text = f"{user_input}\nError: {error}" if error else user_input
 
@@ -128,6 +128,7 @@ class LLM:
                 user_content += f"\n\n{session_ctx}"
 
         messages.append({"role": "user", "content": user_content})
+        conv_start = len(messages)  # everything after this is the LLM conversation turn
 
         all_commands = []
         reasoning = False
@@ -282,7 +283,7 @@ class LLM:
                     state.log_conversation(messages)
                     self._maybe_compact()
                     if not exec_callback:
-                        return text if text else None, all_commands if all_commands else None
+                        return text if text else None, all_commands if all_commands else None, messages[conv_start:]
                     continue
 
                 summary = text if text else None
@@ -304,14 +305,17 @@ class LLM:
                     if extracted:
                         lang = extracted.get("language") or state.current_language
                         all_commands = [{"command": extracted["command"], "language": lang}]
+                # Append final assistant text to messages so conversation is complete
+                if summary:
+                    messages.append({"role": "assistant", "content": summary})
                 state.log_conversation(messages)
                 self._maybe_compact()
-                return summary, all_commands if all_commands else None
+                return summary, all_commands if all_commands else None, messages[conv_start:]
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages)
-                return f"LLM response error: {e}", None
+                return f"LLM response error: {e}", None, None
             except Exception as e:
                 err_msg = str(e).lower()
                 if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
@@ -319,13 +323,13 @@ class LLM:
                     continue
                 if any(kw in err_msg for kw in ("401", "403", "authentication", "invalid api key", "invalid_request_error", "access denied")):
                     return ("Authentication failed — check your API key. Set DEEPSEEK_API_KEY, OPENAI_API_KEY,"
-                            " or add api_key to ~/.srun/user_config.json. Type /configure for help."), None
+                            " or add api_key to ~/.srun/user_config.json. Type /configure for help."), None, None
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages)
-                return f"LLM error: {e}", None
+                return f"LLM error: {e}", None, None
 
         state.log_conversation(messages)
-        return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None
+        return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None, None
 
     def _track_usage(self, usage):
         if usage:

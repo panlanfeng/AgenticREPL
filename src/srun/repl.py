@@ -257,11 +257,13 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
 
     # Skip direct execution for natural language — go to LLM directly
     if _looks_like_nl(user_input):
-        summary, tool_calls = llm.run(
+        summary, tool_calls, conv = llm.run(
             user_input,
             exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
             ask_user_callback=_ask_user_inline(),
         )
+        if conv:
+            state.extend_conversation(conv)
         if tool_calls:
             return {
                 "success": True, "output": "", "llm_used": True, "language": lang,
@@ -310,12 +312,14 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             }
 
     # Failed — dispatch to LLM agent loop with inline execution
-    summary, tool_calls = llm.run(
+    summary, tool_calls, conv = llm.run(
         user_input,
         error=output if not success else (rest[0] if rest else ""),
         exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
         ask_user_callback=_ask_user_inline(),
     )
+    if conv:
+        state.extend_conversation(conv)
     if tool_calls:
         # Danger check on LLM-generated commands
         if lang == "shell":
@@ -788,7 +792,9 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop(user_input, sh_exec, "shell")
 
-    summary, tool_calls = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec), ask_user_callback=_ask_user_inline())
+    summary, tool_calls, conv = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec), ask_user_callback=_ask_user_inline())
+    if conv:
+        state.extend_conversation(conv)
     if tool_calls is None and summary is None:
         if not llm.client and any(kw in user_input.lower() for kw in ("api key", "api_key", "configure", "setup api", "set up llm")):
             _print_config_help()

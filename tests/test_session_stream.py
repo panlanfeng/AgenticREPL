@@ -100,7 +100,7 @@ class TestToolCalls:
     @pytest.mark.llm
     def test_llm_calls_tools_for_dispatch(self):
         from srun.llm import llm
-        summary, cmds = llm.run("find all csv files larger than 1MB")
+        summary, cmds, _ = llm.run("find all csv files larger than 1MB")
         assert cmds is not None or summary is not None, \
             "LLM dispatch should return commands or summary"
         if cmds:
@@ -115,7 +115,7 @@ class TestToolCalls:
     @pytest.mark.llm
     def test_llm_calls_tools_for_repair(self):
         from srun.llm import llm
-        summary, cmds = llm.run("grep --nocolor root /etc/hosts",
+        summary, cmds, _ = llm.run("grep --nocolor root /etc/hosts",
             error="grep: unrecognized option --nocolor")
         assert cmds is not None or summary is not None, \
             "LLM repair should return fixed command or summary"
@@ -254,7 +254,7 @@ class TestRunCommandTool:
     def test_run_command_returns_command(self):
         """LLM calling run_command should return a valid command string."""
         from srun.llm import llm
-        summary, cmds = llm.run("ls -la")
+        summary, cmds, _ = llm.run("ls -la")
         if cmds:
             assert len(cmds) > 0
             first = cmds[0]
@@ -268,7 +268,7 @@ class TestRunCommandTool:
     def test_run_command_for_chat_returns_text(self):
         """Chat input should return text without commands."""
         from srun.llm import llm
-        summary, cmds = llm.run("hello, how are you?")
+        summary, cmds, _ = llm.run("hello, how are you?")
         # Chat should get a text response, no commands
         assert summary is not None or cmds is not None, \
             "Chat should get text response"
@@ -380,7 +380,7 @@ class TestRSessionMode:
         """Natural language in R mode should trigger LLM to generate R code."""
         state.current_language = "r"
         from srun.llm import llm
-        summary, cmds = llm.run("create a sequence from 1 to 10")
+        summary, cmds, _ = llm.run("create a sequence from 1 to 10")
         # Should either get R code or text summary
         assert summary is not None or cmds is not None, \
             "LLM should generate R code or text response"
@@ -397,7 +397,7 @@ class TestRSessionMode:
         """Natural language in Python mode should trigger LLM to generate Python code."""
         state.current_language = "python"
         from srun.llm import llm
-        summary, cmds = llm.run("create a list of numbers from 1 to 10")
+        summary, cmds, _ = llm.run("create a list of numbers from 1 to 10")
         assert summary is not None or cmds is not None
         if cmds:
             for tc in cmds:
@@ -420,7 +420,7 @@ class TestNaturalLanguageCrossLanguage:
     def test_shell_nl_python_task(self):
         """In shell mode, NL asking for Python should generate python -c wrapper."""
         state.current_language = "shell"
-        summary, cmds = self.llm.run("create a pandas dataframe")
+        summary, cmds, _ = self.llm.run("create a pandas dataframe")
         assert summary is not None or cmds is not None, \
             "Should generate response"
         if cmds:
@@ -434,7 +434,7 @@ class TestNaturalLanguageCrossLanguage:
     def test_python_nl_shell_task(self):
         """In Python mode, requesting shell info should still work."""
         state.current_language = "python"
-        summary, cmds = self.llm.run("list all files in the current directory")
+        summary, cmds, _ = self.llm.run("list all files in the current directory")
         assert summary is not None or cmds is not None
 
     @pytest.mark.slow
@@ -442,7 +442,7 @@ class TestNaturalLanguageCrossLanguage:
     def test_r_nl_statistical_task(self):
         """In R mode, NL requesting stats should generate R code."""
         state.current_language = "r"
-        summary, cmds = self.llm.run("calculate the mean of numbers 1,2,3,4,5")
+        summary, cmds, _ = self.llm.run("calculate the mean of numbers 1,2,3,4,5")
         assert summary is not None or cmds is not None
         if cmds:
             for tc in cmds:
@@ -688,7 +688,7 @@ class TestRunInput:
 
         original_run = llm_mod.run
         def fake_run(*args, **kwargs):
-            return "done", [{"command": "rm -rf /", "language": "shell"}]
+            return "done", [{"command": "rm -rf /", "language": "shell"}], None
         try:
             llm_mod.run = fake_run
             result = _run_input("delete everything", self.py, self.sh, self.r)
@@ -877,7 +877,7 @@ class TestOutputFormat:
         # Capture stdout to verify line separations
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            summary, tcs = llm.run("list the 3 largest files in /tmp with their sizes", exec_callback=_exec_inline(py, sh, r))
+            summary, tcs, _ = llm.run("list the 3 largest files in /tmp with their sizes", exec_callback=_exec_inline(py, sh, r))
 
         output = buf.getvalue()
         # Reasoning should end with a newline before the code line
@@ -910,7 +910,7 @@ class TestOutputFormat:
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            summary, tcs = llm.run("list the 3 largest files in /tmp", exec_callback=_exec_inline(py, sh, r))
+            summary, tcs, _ = llm.run("list the 3 largest files in /tmp", exec_callback=_exec_inline(py, sh, r))
 
         output = buf.getvalue()
         lines = output.strip().split("\n")

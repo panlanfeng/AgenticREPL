@@ -92,11 +92,11 @@ def run_one(usecase, rounds):
                 hint=hint,
             )
 
-            user_msg, _ = llm.run(prompt_text)
+            user_msg, _2, _3 = llm.run(prompt_text)
             if not user_msg:
                 user_msg = hint
 
-            summary, commands = llm.run(
+            summary, commands, _ = llm.run(
                 user_msg,
                 exec_callback=_exec_inline(py, sh, r),
             )
@@ -143,7 +143,7 @@ def _generate_review(transcript_text, hidden_goal, score):
     if not llm.client:
         return "No LLM client configured for review generation."
     try:
-        summary, _ = llm.run(
+        summary, _, _ = llm.run(
             _REFLECTION_PROMPT.format(transcript=transcript_text, hidden_goal=hidden_goal, score=score)
         )
         return summary or "No review generated"
