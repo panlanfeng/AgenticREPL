@@ -192,8 +192,8 @@ class LLM:
                     print(flush=True)
 
                 self._track_usage(usage)
-                if usage and hasattr(usage, "total_tokens"):
-                    total_tokens += usage.total_tokens
+                if usage and hasattr(usage, "prompt_cache_miss_tokens"):
+                    total_tokens += getattr(usage, "prompt_cache_miss_tokens", 0) or 0
 
                 text = "".join(content_parts).strip()
                 tool_calls = []
