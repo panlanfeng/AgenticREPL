@@ -148,6 +148,7 @@ class LLM:
                 stream = self.client.chat.completions.create(**kwargs)
 
                 content_parts = []
+                reasoning_parts = []
                 tool_call_data = {}
                 usage = None
                 first_content = True
@@ -159,6 +160,7 @@ class LLM:
                     if not delta:
                         continue
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                        reasoning_parts.append(delta.reasoning_content)
                         if not reasoning:
                             reasoning = True
                             print("\033[2mReasoning: \033[0m", end="", flush=True)
@@ -201,7 +203,10 @@ class LLM:
                         ))
 
                 if tools and tool_calls:
+                    reasoning_text = "".join(reasoning_parts)
                     msg_dict = {"role": "assistant", "content": text, "tool_calls": []}
+                    if reasoning_text:
+                        msg_dict["reasoning_content"] = reasoning_text
                     for tc in tool_calls:
                         tc_dict = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                         msg_dict["tool_calls"].append(tc_dict)
