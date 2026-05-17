@@ -395,6 +395,8 @@ class SessionState:
                 self._stable_summary = best_summary
             if conversation:
                 self._conversation = conversation
+                self._context_injected = True  # prevent redundant session startup injection
+                self._last_known_cwd = os.getcwd()  # prevent stale cwd from triggering system_reminder
         except Exception:
             pass
 

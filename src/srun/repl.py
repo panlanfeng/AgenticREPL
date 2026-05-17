@@ -149,6 +149,8 @@ def main():
             print(f"\033[2m  session {resume_id} not found — starting fresh\033[0m")
     else:
         state._load_conversation_state()  # restore context from current session
+        if state._conversation:
+            state._context_injected = True  # prevent redundant session startup
 
     # Connect MCP servers from config
     mcp_servers = config_get("mcp_servers") or {}
