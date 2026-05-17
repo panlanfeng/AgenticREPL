@@ -145,38 +145,65 @@ Install via Homebrew or pip, then start with `srun`.
 brew tap panlanfeng/agenticrepl
 brew install agenticrepl
 
-# Or pip
+srun #start the REPL 
+```
+Or pip
+```bash
 pip install git+https://github.com/panlanfeng/AgenticREPL.git
 
 srun                                # start the REPL
 ```
-
-If `srun` is not found after install:
+If `srun` is not found after install via pip:
 ```bash
 which srun
 export PATH="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"
 ```
 
 
-Use your API key from the major llm providers. 
-```
-# Set your provider's API key in your .zshrc or .bashrc — auto-detected if you have have it loaded to shell environment
-DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
-#OPENAI_API_KEY="sk-xxx"     # for OpenAI
-#ANTHROPIC_API_KEY="sk-xxx"  # for Anthropic
+## LLM Providers
+
+AgenticREPL auto-detects provider API keys from environment variables. Set one in your `~/.zshrc`:
+
+```bash
+export DEEPSEEK_API_KEY="sk-xxx"     # for DeepSeek (default)
 ```
 
-Or set provider via config file (`~/.srun/user_config.json`):
+No need to set model names or base URLs — they're filled from presets automatically.
+
+| Provider | Env Var | Default Model | Base URL |
+|----------|---------|---------------|----------|
+| **DeepSeek** (default) | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `https://api.deepseek.com/v1` |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-5.5` | `https://api.openai.com/v1` |
+| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-opus-4-7` | `https://api.anthropic.com/v1` |
+| **Google Gemini** | `GOOGLE_API_KEY` | `gemini-3.1-pro-preview` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| **xAI** | `XAI_API_KEY` | `grok-4.3` | `https://api.x.ai/v1` |
+| **Moonshot Kimi** | `KIMI_API_KEY` | `kimi-k2-thinking` | `https://api.moonshot.ai/v1` |
+| **Zhipu GLM** | `GLM_API_KEY` | `glm-5.1` | `https://open.bigmodel.cn/api/paas/v4` |
+| **Alibaba Qwen** | `QWEN_API_KEY` | `qwen3.6-plus` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
+| **MiniMax** | `MINIMAX_API_KEY` | `MiniMax-M2.7` | `https://api.minimax.chat/v1` |
+| **OpenRouter** | `OPENROUTER_API_KEY` | `openrouter/auto` | `https://openrouter.ai/api/v1` |
+| **SiliconFlow** | `SILICONFLOW_API_KEY` | `deepseek-ai/DeepSeek-V4-Flash` | `https://api.siliconflow.cn/v1` |
+| **Perplexity** | `PERPLEXITY_API_KEY` | `sonar-pro` | `https://api.perplexity.ai` |
+| **Mistral AI** | `MISTRAL_API_KEY` | `mistral-large-2512` | `https://api.mistral.ai/v1` |
+| **Amazon Bedrock** | `AWS_ACCESS_KEY_ID` | `anthropic.claude-opus-4-7-v1:0` | `https://bedrock-runtime.us-east-1.amazonaws.com` |
+
+Or configure via `~/.srun/user_config.json`:
+
 ```json
 { "provider": "openai", "api_key": "sk-..." }
 ```
 
-Or 
-```
-srun> /configure                     # or configure interactively in REPL
+Override the default model:
+```json
+{ "provider": "deepseek", "api_key": "sk-...", "api_model": "deepseek-v4-flash" }
 ```
 
-Supported providers: deepseek (default), openai, anthropic, google, glm, kimi, minimax, qwen, xai, openrouter, siliconflow, perplexity, mistral, bedrock, custom.
+Or use the REPL interactive setup:
+```
+srun> /configure
+```
+
+Priority: `SRUN_API_KEY` env > provider-specific env > `~/.srun/user_config.json` > defaults.
 
 
 
