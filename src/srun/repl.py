@@ -556,6 +556,9 @@ def _run_repl(py_exec, sh_exec, r_exec):
         print_result(result, elapsed_ms)
         state.save()
 
+    from .context import SESSION_ID
+    print(f"\n  Resume with: \033[1msrun --resume {SESSION_ID}\033[0m")
+
 
 def _print_config_help():
     print("Configure in ~/.srun/user_config.json:")

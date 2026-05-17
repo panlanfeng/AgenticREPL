@@ -351,9 +351,27 @@ class SessionState:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _load_conversation_state(self):
-        """Restore _stable_summary + _conversation from history file.
+        """Restore _stable_summary + _conversation + current_language from session files.
         llm_conversation entries store deltas (only new messages per turn);
-        compaction_snapshot resets the conversation and sets the summary."""
+        compaction_snapshot resets the conversation and sets the summary.
+        state.json stores current_language for resume functionality."""
+        # Restore language from state.json
+        if os.path.isfile(self.state_path):
+            try:
+                with open(self.state_path, "r") as f:
+                    state_data = json.loads(f.read())
+                if state_data.get("current_language"):
+                    self._current_language = state_data["current_language"]
+                    self._llm_last_known_language = self._current_language
+                if state_data.get("last_lang"):
+                    self.last_lang = state_data["last_lang"]
+                if state_data.get("vars"):
+                    self.vars = state_data["vars"]
+                if state_data.get("active_df"):
+                    self.active_df = state_data["active_df"]
+            except Exception:
+                pass
+        # Restore conversation from full_history.jsonl
         if not os.path.isfile(self.full_history_path):
             return
         best_summary = None
