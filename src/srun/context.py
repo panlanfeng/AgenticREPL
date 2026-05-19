@@ -172,6 +172,7 @@ class SessionState:
         self._cached_summary = None
         self._max_context_tokens = 256000  # per-turn context window
         self._last_memory_extract_tokens = 0  # token count at last MEMORY.md write
+        self._last_memory_extract_turn = 0    # turn count at last MEMORY.md write
         self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
@@ -189,6 +190,7 @@ class SessionState:
         self._cached_summary = None
         self.session_log = []
         self._turn = 0
+        self._last_memory_extract_turn = 0
         self.last_dispatch_error = None
         self._context_injected = False
         self._llm_last_known_language = self._current_language
@@ -577,6 +579,7 @@ class SessionState:
             with open(self._memory_file, "w") as f:
                 f.write(memory)
             self._last_memory_extract_tokens = self.context_tokens()
+            self._last_memory_extract_turn = self._turn
         except Exception:
             pass
 
