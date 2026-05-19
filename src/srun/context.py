@@ -172,7 +172,7 @@ class SessionState:
         self._cached_summary = None
         self._max_context_tokens = 256000  # per-turn context window
         self._last_memory_extract_tokens = 0  # token count at last MEMORY.md write
-        self._memory_file = os.path.join(SESSION_DIR, "MEMORY.md")
+        self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(BASE_DIR, exist_ok=True)
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -205,7 +205,7 @@ class SessionState:
         self.full_history_path = target_history
         self.outputs_dir = os.path.join(target_dir, "outputs")
         self.state_path = os.path.join(target_dir, "state.json")
-        self._memory_file = os.path.join(target_dir, "MEMORY.md")
+        self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(self.outputs_dir, exist_ok=True)
         self._load_conversation_state()
         return True
@@ -651,7 +651,13 @@ class SessionState:
         state_note = f"\nState: {self.state_path} (session metadata)"
         mem_note = ""
         if os.path.isfile(self._memory_file):
-            mem_note = f"\nMemory: use read_file to load {self._memory_file} — contains user profile, environment learnings, past corrections"
+            try:
+                with open(self._memory_file) as f:
+                    memory = f.read().strip()
+                if memory:
+                    mem_note = f"\n## MEMORY.md ({self._memory_file})\n{memory}"
+            except Exception:
+                pass
         return f"{sys_info}\n{ws_info}{api_note}{history_note}{state_note}{mem_note}"
 
     def workspace_context(self):
