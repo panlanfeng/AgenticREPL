@@ -270,9 +270,15 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
             }
 
     # Failed — dispatch to LLM agent loop with inline execution
+    error_msg = output if not success else (rest[0] if rest else "")
+    # Suppress shell error for natural language — "command not found"
+    # is expected for NL, not a typo. Let the LLM translate, not repair.
+    if ("command not found" in (error_msg or "").lower()
+            and len(user_input.strip().split()) >= 3):
+        error_msg = ""
     summary, tool_calls, conv = llm.run(
         user_input,
-        error=output if not success else (rest[0] if rest else ""),
+        error=error_msg,
         exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
         ask_user_callback=_ask_user_inline(),
     )
