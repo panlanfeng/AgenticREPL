@@ -740,7 +740,7 @@ def test_llm_and_repair():
 # 10. REPL Utility Functions
 # ═══════════════════════════════════════════════════════════════════════
 def test_repl_utils():
-    from srun.repl import (_is_incomplete, _looks_like_nl, _has_stderr_errors,
+    from srun.repl import (_is_incomplete, _has_stderr_errors,
                             _executor_for)
     from srun.executors.python_exec import PythonExecutor
     from srun.executors.shell_exec import ShellExecutor
@@ -782,18 +782,10 @@ def test_repl_utils():
     assert _is_incomplete("", "python") == False
     assert _is_incomplete("", "r") == False
 
-    # 10.5 _looks_like_nl
     # 5+ words starting with a starter word
-    assert _looks_like_nl("show me all the csv files") == True
-    assert _looks_like_nl("find all python files in this directory") == True
-    assert _looks_like_nl("ls -la") == False  # too short
-    assert _looks_like_nl("x = 42") == False  # has code chars
     # "sort the data by name" — 5 words, starts with "sort" (starter)
-    assert _looks_like_nl("sort the data by name") == True
     # "make clean build" — 3 words, too short
-    assert _looks_like_nl("make clean build") == False
     # "find . -name '*.py'" — has code chars, should be False
-    assert _looks_like_nl("find . -name '*.py'") == False
 
     # 10.6 _has_stderr_errors
     assert _has_stderr_errors("Error: something wrong") == True

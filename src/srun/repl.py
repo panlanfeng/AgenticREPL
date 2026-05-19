@@ -232,54 +232,10 @@ def _executor_for(lang, py_exec, sh_exec, r_exec):
     return m.get(lang, sh_exec)
 
 
-def _looks_like_nl(text):
-    """Quick heuristic: 5+ words + sentence/English patterns → natural language."""
-    words = text.strip().split()
-    if len(words) < 5:
-        return False
-    first = words[0].lower()
-    starters = ("find", "show", "load", "get", "list", "create", "count",
-                "calculate", "compute", "display", "what", "how", "can",
-                "please", "i", "we", "let", "sort", "filter", "group",
-                "analyze", "explain", "summarize", "tell", "give", "make")
-    if first in starters:
-        return True
-    nl_words = {"the", "and", "for", "with", "from", "into", "all", "that",
-                "this", "each", "then", "where", "only", "show", "find"}
-    code_chars = set("=|(){}[]<>;\"'")
-    has_code = any(c in text for c in code_chars)
-    has_nl = any(w.lower() in nl_words for w in words)
-    return has_nl and not has_code
-
-
 def _run_input(user_input, py_exec, sh_exec, r_exec):
     """Try direct execution first. If it fails, dispatch to LLM agent loop."""
     lang = state.current_language
     executor = _executor_for(lang, py_exec, sh_exec, r_exec)
-
-    # Skip direct execution for natural language — go to LLM directly
-    if _looks_like_nl(user_input):
-        summary, tool_calls, conv = llm.run(
-            user_input,
-            exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
-            ask_user_callback=_ask_user_inline(),
-        )
-        if conv:
-            state.extend_conversation(conv)
-        if tool_calls:
-            return {
-                "success": True, "output": "", "llm_used": True, "language": lang,
-                "generated_code": None, "summary": summary, "agent_text": llm._agent_text,
-            }
-        if summary:
-            if any(kw in (summary or "") for kw in ("No LLM configured", "LLM error", "LLM response error", "Token budget", "Authentication failed")):
-                return {"success": False, "output": summary, "llm_used": True, "language": lang}
-            return {"success": True, "output": "", "llm_used": True, "language": "text", "summary": summary, "agent_text": llm._agent_text}
-        return {
-            "success": False,
-            "output": "Could not translate to a command.\nTry being more specific, or break into smaller steps.",
-            "llm_used": True, "language": lang,
-        }
 
     # Quick-fix: try known aliases/typos before direct execution
     if lang == "shell":

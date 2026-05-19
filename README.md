@@ -56,31 +56,6 @@ R> mtcars.filter(wt>5).mean(X) for X in (gear, carb)  # pandas syntax in R
   gear : 3
   carb : 4
 
-R> filter mtcars where mpg > 20, show mpg and cyl only
-  | mtcars[mtcars$mpg > 20, c("mpg", "cyl")]
-     mpg cyl
-Mazda RX4      21.0   6
-Mazda RX4 Wag  21.0   6
-Datsun 710     22.8   4
-Hornet 4 Drive 21.4   6
-Merc 240D      24.4   4
-Merc 230       22.8   4
-Fiat 128       32.4   4
-Honda Civic    30.4   4
-
-R> group mtcars by cyl and gear, count rows, show average mpg
-  | mtcars %>% group_by(cyl, gear) %>% summarise(count = n(), avg_mpg = mean(mpg), .groups = "drop")
-  # A tibble: 8 × 4
-     cyl  gear count avg_mpg
-   <dbl> <dbl> <int>   <dbl>
- 1     4     3     1    21.5
- 2     4     4     8    26.9
- 3     4     5     2    28.2
- 4     6     3     2    19.8
- 5     6     4     4    19.8
- 6     6     5     1    19.7
- 7     8     3    12    15.0
- 8     8     5     2    15.4
 
 R> in mtcars, group by cyl, compute mean of mpg, hp and wt, rounded to 1 decimal
   | mtcars %>% group_by(cyl) %>% summarise(across(c(mpg, hp, wt), ~ round(mean(.x), 1)))
@@ -99,41 +74,27 @@ R> plot mtcars with mpg on x, hp on y, color points by cyl as factor, add smooth
   |   labs(color = "cyl")
 ```
 
-## AgenticREPL is a full fledged AI Agent
+## AgenticREPL is a full fledged AI Agent, understand all natural lanaguage instructions
 
-It is not just translating your command as a one time request but it view all the full interaction history and understand your intention. 
-You can ask it to read your repo, edit your files, fix a bug and run tests for you, just like a regular coding agent. 
+It is not just translating your command as a one time request but it view all the full interaction history and understand your intention. You can ask it to read your repo, edit your files, fix a bug and run tests for you, just like a regular coding agent. 
 ```shell
 shell> add comments for the file test.py, run it and fix any bugs
-
+#or 
+shell> analyze the following repo and explain the *.py files
 ```
 
-
-## How it works
-
-```
-User input
-  └─ Execute in current session (shell/Python/R)
-       ├─ Success → done (zero latency)
-       └─ Failure → LLM agent loop
-            ├─ LLM uses tools: search files, check commands, read data
-            ├─ LLM generates code → executed inline, output shown to user
-            ├─ LLM sees output, can call more tools or stop
-            └─ Loop until LLM stops or max number of tokens reached
-```
-
-- **Try first, ask later** — execute directly. Only call LLM when something fails.
-- **Locked to current session** — shell commands in shell mode, R code in R mode. No surprise language switches.
-- **Agent loop** — LLM can do multi-step: search → read → generate → execute → check → refine.
-- **LLM sees output** — every `run_command` tool call returns actual exit code and last 20 lines of output.
-
-## Error auto-repair
+## Error auto-repair and psuedo code being translated
 
 ```bash
 shell> pritn('hello world')
 ✗ NameError: name 'pritn' is not defined
   | print('hello world')
   hello world
+```
+
+## Normal commands runs with no llm overhead
+```bash
+shell> git pull  # runs normally, does not go to llm but history being visible to the agent
 ```
 
 
