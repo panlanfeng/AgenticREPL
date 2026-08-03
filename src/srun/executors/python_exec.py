@@ -1,7 +1,20 @@
 import ast
 import sys
 import io
+import signal
+import threading
 from ..context import state
+from ..user_config import get as _config_get
+
+
+class _ExecTimeout(BaseException):
+    """Raised when Python code exceeds the execution timeout.
+    Inherits BaseException so user code cannot swallow it with `except Exception`."""
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise _ExecTimeout("Python execution timed out")
 
 
 class PythonExecutor:
@@ -31,7 +44,12 @@ class PythonExecutor:
         except SyntaxError:
             return code
 
-    def execute(self, code):
+    def execute(self, code, timeout=None):
+        if timeout is None:
+            try:
+                timeout = int(_config_get("exec_timeout_seconds") or 0)
+            except Exception:
+                timeout = 0
         code = self._resolve_columns(code)
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -39,6 +57,12 @@ class PythonExecutor:
         old_stderr = sys.stderr
         sys.stdout = stdout
         sys.stderr = stderr
+        old_handler = None
+        # SIGALRM only works from the main thread; otherwise fall back to no timeout
+        if (timeout and timeout > 0 and hasattr(signal, "setitimer")
+                and threading.current_thread() is threading.main_thread()):
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.setitimer(signal.ITIMER_REAL, timeout)
         try:
             tree = ast.parse(code, mode="exec")
             is_expr = (
@@ -53,9 +77,17 @@ class PythonExecutor:
                     print(repr(result))
             else:
                 exec(code, self.namespace)
+        except _ExecTimeout:
+            return (False,
+                    f"Python execution timed out after {timeout}s — code interrupted. "
+                    "Note: child threads/subprocesses may still be running.",
+                    stdout.getvalue(), stderr.getvalue(), 124)
         except Exception as e:
             return False, f"{type(e).__name__}: {e}", stdout.getvalue(), stderr.getvalue(), 1
         finally:
+            if old_handler is not None:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, old_handler)
             sys.stdout = old_stdout
             sys.stderr = old_stderr
         output = stdout.getvalue()

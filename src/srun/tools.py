@@ -292,14 +292,43 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a command in the target REPL environment (shell, python, or r). Output is returned raw — print results directly, do not wrap in JSON. After execution, check output and decide next step.",
+            "description": "Execute a command in the target REPL environment (shell, python, or r). Output is returned raw — print results directly, do not wrap in JSON. After execution, check output and decide next step. For long-running shell commands (builds, servers, tests), set background=true and poll with check_background.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "The command or code to execute"},
                     "language": {"type": "string", "enum": ["shell", "python", "r"], "description": "Target language. Match the current environment."},
+                    "background": {"type": "boolean", "description": "Start the command as a background task (shell only). Returns a task_id; poll with check_background, kill with stop_background."},
                 },
                 "required": ["command", "language"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_background",
+            "description": "Check status and recent output of a background task started with run_command(background=true). Returns running/finished state, exit code, and the last lines of output.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task id returned when the background task was started"},
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_background",
+            "description": "Stop a background task. Kills the whole process group and returns output captured so far.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task id returned when the background task was started"},
+                },
+                "required": ["task_id"],
             },
         },
     },
@@ -513,6 +542,8 @@ TOOL_HANDLERS = {
     "inspect_command": inspect_command,
     "read_file": read_file,
     "run_command": _run_command,
+    "check_background": lambda task_id="": f"check_background is only available in the agent loop (task {task_id})",
+    "stop_background": lambda task_id="": f"stop_background is only available in the agent loop (task {task_id})",
     "ask_user": ask_user,
     "grep_search": grep_search,
     "file_edit": file_edit,

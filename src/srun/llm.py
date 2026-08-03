@@ -5,12 +5,14 @@ import time
 import types
 import difflib
 import uuid
+import httpx
 from openai import OpenAI
 from .config import config
 from .context import state
 from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
 from .mcp import mcp
+from .user_config import get as config_get
 
 
 def _extract_command_from_text(text):
@@ -85,13 +87,14 @@ class LLM:
     def __init__(self):
         self.client = None
         if config.has_llm:
-            self.client = OpenAI(api_key=config.api_key, base_url=config.api_base)
+            self.client = OpenAI(api_key=config.api_key, base_url=config.api_base,
+                                  timeout=httpx.Timeout(120.0, connect=10.0))
         self._hit_tokens = 0
         self._miss_tokens = 0
         self._last_output = ""  # captured output from last inline run_command
         self._agent_text = ""    # captured agent text for display ordering
 
-    def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None):
+    def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None, bg_callback=None):
         if not self.client:
             return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None, None
 
@@ -134,8 +137,16 @@ class LLM:
         all_commands = []
         reasoning = False
         total_tokens = 0
+        retries = 0
+        max_steps = int(config_get("max_llm_steps") or 12)  # hard cap on agent-loop steps
+        steps = 0
+        hit_step_cap = False
         MAX_TOKENS = state._max_context_tokens // 4  # response budget = 1/4 of context window
-        while total_tokens < MAX_TOKENS:
+        while total_tokens < MAX_TOKENS and retries < 5:
+            if steps >= max_steps:
+                hit_step_cap = True
+                break
+            steps += 1
             start = time.perf_counter()
             try:
                 kwargs = {"model": config.model, "messages": messages,
@@ -235,8 +246,12 @@ class LLM:
                             cmd = args.get("command", "")
                             lang = args.get("language", "shell")
                             if cmd:
-                                all_commands.append({"command": cmd, "language": lang, "output": ""})
-                            if exec_callback and cmd:
+                                all_commands.append({"command": cmd, "language": lang,
+                                                     "output": "", "background": bool(args.get("background"))})
+                            if cmd and args.get("background") and bg_callback:
+                                content = bg_callback("start", command=cmd, language=lang)
+                                print(f"\033[1;32m> {cmd} [background]\033[0m", flush=True)
+                            elif exec_callback and cmd:
                                 ok, out, *_ = exec_callback(cmd, lang)
                                 if all_commands:
                                     all_commands[-1]["output"] = out.strip() if out else ""
@@ -252,6 +267,15 @@ class LLM:
                                 content = f"Exit: {'0' if ok else '1'}\n{out[:3000]}"
                             else:
                                 content = f"queued: {cmd}"
+                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                        elif tc.function.name in ("check_background", "stop_background"):
+                            task_id = args.get("task_id", "")
+                            if bg_callback:
+                                action = "check" if tc.function.name == "check_background" else "stop"
+                                content = bg_callback(action, task_id=task_id)
+                                print(f"\033[2m  → {action} background task {task_id}\033[0m", flush=True)
+                            else:
+                                content = f"{tc.function.name} is not available in this context"
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                         else:
                             if tc.function.name == "ask_user" and ask_user_callback:
@@ -334,6 +358,9 @@ class LLM:
             except Exception as e:
                 err_msg = str(e).lower()
                 if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
+                    retries += 1
+                    if retries >= 5:
+                        return f"LLM error: too many transient failures — {e}", None, None
                     time.sleep(1.5)
                     continue
                 if any(kw in err_msg for kw in ("401", "403", "authentication", "invalid api key", "invalid_request_error", "access denied")):
@@ -346,6 +373,10 @@ class LLM:
 
         state.log_conversation(messages[prev_log_len:])
         prev_log_len = len(messages)
+        if hit_step_cap:
+            return (f"Reached max steps ({max_steps}) for this turn; task too complex. "
+                    "Break it into smaller steps or continue with a follow-up prompt.",
+                    all_commands if all_commands else None, messages[conv_start:])
         return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None, None
 
     def _track_usage(self, usage):

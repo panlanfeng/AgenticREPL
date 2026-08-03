@@ -281,6 +281,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         error=error_msg,
         exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
         ask_user_callback=_ask_user_inline(),
+        bg_callback=_bg_inline(sh_exec),
     )
     if conv:
         state.extend_conversation(conv)
@@ -579,6 +580,7 @@ def _abort_executors(py_exec, sh_exec, r_exec):
                 except Exception:
                     pass
             ex._process = None
+    sh_exec.stop_all_background()
 
 
 def _log_turn(user_input, result, elapsed_ms):
@@ -726,6 +728,23 @@ def _ask_user_inline():
     return _do
 
 
+def _bg_inline(sh_exec):
+    """Callback for llm.run() to start/poll/stop background shell tasks."""
+    def _do(action, task_id="", command=""):
+        if action == "start":
+            if not command.strip():
+                return "Error: empty background command"
+            task_id = sh_exec.start_background(command)
+            return (f"Started background task {task_id}: {command}\n"
+                    f"Use check_background with task_id '{task_id}' to poll, stop_background to kill.")
+        if action == "check":
+            return sh_exec.poll_background(task_id)
+        if action == "stop":
+            return sh_exec.stop_background(task_id)
+        return f"Unknown background action: {action}"
+    return _do
+
+
 def execute(category, user_input, py_exec, sh_exec, r_exec):
     EXEC_MAP = {
         "shell": (sh_exec, "shell"),
@@ -749,7 +768,8 @@ def execute(category, user_input, py_exec, sh_exec, r_exec):
     if category == "shell":
         return _retry_loop(user_input, sh_exec, "shell")
 
-    summary, tool_calls, conv = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec), ask_user_callback=_ask_user_inline())
+    summary, tool_calls, conv = llm.run(user_input, exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
+                                        ask_user_callback=_ask_user_inline(), bg_callback=_bg_inline(sh_exec))
     if conv:
         state.extend_conversation(conv)
     if tool_calls is None and summary is None:

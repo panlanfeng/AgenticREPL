@@ -2,10 +2,14 @@ import subprocess
 import os
 import re
 import shutil
+import signal
 import time
 import platform
 import tempfile
 import atexit
+import threading
+
+from ..user_config import get as _config_get
 
 SHELL_BIN = os.environ.get("SHELL", "/bin/zsh")
 
@@ -71,6 +75,8 @@ class ShellExecutor:
         self.env = _build_env()
         self._ssh_process = None  # persistent SSH shell session
         self._remote_label = None
+        self._bg_tasks = {}       # background tasks by task_id
+        self._bg_seq = 0
 
     @property
     def remote(self):
@@ -171,8 +177,13 @@ class ShellExecutor:
 
     # ── Execute ───────────────────────────────────────────────────
 
-    def execute(self, code):
+    def execute(self, code, timeout=None):
         stripped = code.strip()
+        if timeout is None:
+            try:
+                timeout = int(_config_get("exec_timeout_seconds") or 0)
+            except Exception:
+                timeout = 0
 
         # Remote: send through persistent SSH session
         if self._ssh_process:
@@ -185,35 +196,125 @@ class ShellExecutor:
 
         # Local: subprocess.run
         if _needs_tty(stripped):
-            rc = subprocess.call(stripped, shell=True, executable=self.shell,
-                                  cwd=os.getcwd(), env=self.env)
+            rc = self._run_tty(stripped, timeout)
             return rc == 0, "", "", 0 if rc == 0 else rc
 
         try:
-            result = subprocess.run(
-                stripped,
-                shell=True,
-                executable=self.shell,
-                capture_output=True,
-                text=True,
-                cwd=os.getcwd(),
-                env=self.env,
-            )
+            out, err, rc, timed_out = self._run_captured(stripped, timeout)
         except Exception as e:
             return False, f"Error: {e}", "", -1
 
-        output = result.stdout
-        if result.stderr:
-            output += result.stderr
+        output = out
+        if err:
+            output += err
 
         if self._is_pure_cd(stripped):
             new_cwd = self._sync_cd(stripped)
             if new_cwd:
                 os.chdir(new_cwd)
 
-        if result.returncode != 0:
-            return False, output, result.stderr, result.returncode
-        return True, output, result.stderr, 0
+        if timed_out:
+            return False, output, err, 124
+        if rc != 0:
+            return False, output, err, rc
+        return True, output, err, 0
+
+    def _run_captured(self, command, timeout):
+        """Run a command capturing output. Kills the whole process group on timeout."""
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            executable=self.shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=os.getcwd(),
+            env=self.env,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        timed_out = False
+        try:
+            out, err = proc.communicate(timeout=timeout if timeout and timeout > 0 else None)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            self._kill_process_tree(proc)
+            out, err = proc.communicate()
+            out = (out or "") + f"\n[timed out after {timeout}s — process group killed]"
+        return out, err, proc.returncode, timed_out
+
+    def _run_tty(self, command, timeout):
+        """Run an interactive TTY command, killing the process group on timeout."""
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            executable=self.shell,
+            cwd=os.getcwd(),
+            env=self.env,
+            start_new_session=True,
+        )
+        try:
+            return proc.wait(timeout=timeout if timeout and timeout > 0 else None)
+        except subprocess.TimeoutExpired:
+            self._kill_process_tree(proc)
+            return 124
+
+    def _kill_process_tree(self, proc):
+        """SIGTERM then SIGKILL the whole process group (start_new_session=True)."""
+        pgid = proc.pid  # session leader: its pid is also the process group id
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pgid, sig)
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                proc.wait(timeout=2)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+
+    # ── Background tasks ─────────────────────────────────────────
+
+    def start_background(self, command):
+        """Start a shell command as a tracked background task. Returns a task_id."""
+        self._bg_seq += 1
+        task_id = f"bg{self._bg_seq}"
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            executable=self.shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            cwd=os.getcwd(),
+            env=self.env,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self._bg_tasks[task_id] = _BackgroundTask(task_id, proc, command)
+        return task_id
+
+    def poll_background(self, task_id):
+        """Return status and recent output for a background task."""
+        task = self._bg_tasks.get(task_id)
+        if not task:
+            active = ", ".join(sorted(self._bg_tasks)) or "none"
+            return f"No background task '{task_id}'. Active tasks: {active}"
+        return task.status()
+
+    def stop_background(self, task_id):
+        """Stop a background task (kills its process group) and return final output."""
+        task = self._bg_tasks.get(task_id)
+        if not task:
+            return f"No background task '{task_id}'."
+        task.stop()
+        return task.status()
+
+    def stop_all_background(self):
+        """Stop every tracked background task (called on REPL exit)."""
+        for task in list(self._bg_tasks.values()):
+            task.stop()
+        self._bg_tasks.clear()
 
     # ── Helpers ───────────────────────────────────────────────────
 
@@ -245,3 +346,80 @@ class ShellExecutor:
         except Exception:
             pass
         return None
+
+
+class _BackgroundTask:
+    """Tracked background shell task with a bounded output buffer."""
+
+    MAX_LINES = 2000
+
+    def __init__(self, task_id, proc, command):
+        self.task_id = task_id
+        self.proc = proc
+        self.command = command
+        self.lines = []
+        self.lock = threading.Lock()
+        self.done = False
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self):
+        try:
+            for line in self.proc.stdout:
+                stripped = line.rstrip("\n")
+                with self.lock:
+                    self.lines.append(stripped)
+                    if len(self.lines) > self.MAX_LINES:
+                        del self.lines[: len(self.lines) - self.MAX_LINES]
+        except Exception:
+            pass
+        with self.lock:
+            self.done = True
+
+    def _exit_code(self):
+        if self.proc is None:
+            return None
+        return self.proc.poll()
+
+    def status(self):
+        with self.lock:
+            lines = list(self.lines)
+            done = self.done
+        rc = self._exit_code()
+        state = "finished" if done else "running"
+        if done and rc is not None:
+            state += f" (exit {rc})"
+        tail = lines[-40:] if lines else []
+        preview = "\n".join(tail) if tail else "(no output yet)"
+        if len(lines) > len(tail):
+            preview = f"... ({len(lines) - len(tail)} earlier lines) ...\n" + preview
+        return (f"task {self.task_id}: {state}\n"
+                f"command: {self.command}\n"
+                f"output ({len(lines)} lines):\n{preview}")
+
+    def stop(self):
+        if self.proc is None:
+            return
+        pgid = self.proc.pid
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            try:
+                self.proc.terminate()
+            except (ProcessLookupError, OSError):
+                pass
+        try:
+            self.proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                try:
+                    self.proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+        self.thread.join(timeout=1)

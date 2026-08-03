@@ -55,6 +55,17 @@ class TestPythonExecutor:
         ok, output, *rest = self.py.execute("df.groupby(!!!")
         assert not ok
 
+    def test_execute_timeout_interrupts_infinite_loop(self):
+        ok, out, *rest = self.py.execute("while True: pass", timeout=1)
+        assert not ok
+        assert "timed out" in out
+
+    def test_execute_timeout_preserves_namespace(self):
+        self.py.execute("x = 1", timeout=1)
+        ok, out, *_ = self.py.execute("x")
+        assert ok
+        assert "1" in out
+
     def test_pandas_dataframe_schema_tracking(self):
         pd = pytest.importorskip("pandas")
         df = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})

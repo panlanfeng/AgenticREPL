@@ -8,6 +8,8 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".srun", "user_config.json")
 DEFAULTS = {
     "confirm_llm_code": False,
     "max_retry_rounds": 4,
+    "exec_timeout_seconds": 120,  # kill commands that run longer than this (0 = no timeout)
+    "max_llm_steps": 12,          # hard cap on LLM agent-loop steps per turn (tool calls)
     "provider": "deepseek",  # provider preset (deepseek, openai, anthropic, ...)
     "api_key": "",
     "api_base": "",          # override provider's default base URL
@@ -23,6 +25,8 @@ DEFAULTS = {
 TYPES = {
     "confirm_llm_code": bool,
     "max_retry_rounds": int,
+    "exec_timeout_seconds": int,
+    "max_llm_steps": int,
     "provider": str,
     "api_key": str,
     "api_base": str,
