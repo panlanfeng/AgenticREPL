@@ -142,7 +142,7 @@ class RExecutor:
                     ok = rc is None or rc == 0
                     if not ok:
                         self._process = None
-                    return ok, out, stderr_out if stderr_out else out
+                    return ok, out, stderr_out if stderr_out else out, rc if rc is not None else -1, {}
                 stripped = line.rstrip("\n")
                 if stripped and not stripped.startswith("> ") and not stripped.startswith("+ "):
                     output_lines.append(stripped)
@@ -158,7 +158,7 @@ class RExecutor:
                 ok = rc is None or rc == 0
                 if not ok:
                     self._process = None
-                return ok, out, stderr_out if stderr_out else out
+                return ok, out, stderr_out if stderr_out else out, rc if rc is not None else -1, {}
 
             try:
                 self._process.kill()
@@ -166,7 +166,7 @@ class RExecutor:
             except Exception:
                 pass
             self._process = None
-            return False, "R command timed out", ""
+            return False, "R command timed out", "", -1, {"timed_out": True}
         except Exception as e:
             if self._process:
                 try:
@@ -174,4 +174,4 @@ class RExecutor:
                 except Exception:
                     pass
             self._process = None
-            return False, f"R Error: {e}", ""
+            return False, f"R Error: {e}", "", -1, {}

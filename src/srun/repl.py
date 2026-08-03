@@ -705,8 +705,13 @@ def _exec_inline(py_exec, sh_exec, r_exec):
     exec_map = {"shell": sh_exec, "python": py_exec, "r": r_exec}
     def _do(cmd, lang):
         executor = exec_map.get(lang, sh_exec)
-        ok, out, *_ = executor.execute(cmd)
-        return ok, out
+        result = executor.execute(cmd)
+        ok, out = result[0], result[1]
+        stderr = result[2] if len(result) > 2 else ""
+        rc = result[3] if len(result) > 3 else (0 if ok else 1)
+        meta = result[4] if len(result) > 4 else {}
+        # P1-4: structured feedback — stderr, real exit code, timeout/abort flags
+        return ok, out, {"stderr": stderr, "exit_code": rc, **meta}
     return _do
 
 

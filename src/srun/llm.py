@@ -16,60 +16,106 @@ from .user_config import get as config_get
 
 
 def _extract_command_from_text(text):
-    """Extract command and language from JSON embedded in LLM text output using brace balancing."""
+    """Extract command and language from JSON in LLM text output. Conservative:
+    only trusts fenced ```json blocks or a standalone JSON object, so prose
+    containing stray braces cannot hijack execution."""
     if not text:
         return None
-    for match in re.finditer(r'\{', text):
-        depth = 0
-        start = match.start()
-        i = start
-        in_string = False
-        escape_next = False
-        while i < len(text):
-            c = text[i]
-            if escape_next:
-                escape_next = False
-            elif c == '\\' and in_string:
-                escape_next = True
-            elif c == '"' and not escape_next:
-                in_string = not in_string
-            elif not in_string:
-                if c == '{':
-                    depth += 1
-                elif c == '}':
-                    depth -= 1
-                    if depth == 0:
-                        json_str = text[start:i+1]
-                        try:
-                            obj = json.loads(json_str)
-                            if "command" in obj or "code" in obj:
-                                cmd = obj.get("command") or obj.get("code")
-                                lang = obj.get("language")
-                                return {"command": cmd, "language": lang}
-                        except json.JSONDecodeError:
-                            pass
-                        break
-            i += 1
+    candidates = []
+    for m in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE):
+        candidates.append(m.group(1).strip())
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        candidates.append(stripped)
+    for json_str in candidates:
+        try:
+            obj = json.loads(json_str)
+            if isinstance(obj, dict) and ("command" in obj or "code" in obj):
+                return {"command": obj.get("command") or obj.get("code"),
+                        "language": obj.get("language")}
+        except json.JSONDecodeError:
+            continue
     return None
 
 
 _TOOL_TOKEN_THRESHOLD = 20000  # chars ≈ 5000 tokens; beyond this, dump to file
-_TOOL_HEAD_CHARS = 3000       # first ~750 tokens shown in context
-_TOOL_TAIL_CHARS = 5000       # last ~1250 tokens shown in context
+_TOOL_HEAD_CHARS = 3000       # first ~750 tokens shown in context preview
+_TOOL_TAIL_CHARS = 5000       # last ~1250 tokens shown in context preview
+
+# P1-1: bounded, recoverable tool-result feedback (Maka-style).
+_MAX_OUTPUT_LINES = 2000        # max lines kept before truncation
+_MAX_OUTPUT_CHARS = 50 * 1024   # max chars kept before truncation
+_STREAM_IDLE_TIMEOUT_SECONDS = 120  # P2-4: retry when the model stream stalls
+_OUTPUT_RECOVERY_HINT = (
+    "If the command is safe to re-run, redirect its output to a file "
+    "(e.g. `cmd > out.txt 2>&1`) then use read_file on that file for the omitted portion. "
+    "If re-running could repeat side effects, do not."
+)
 
 
-def _truncate_tool_result(tool_name, result):
-    """Truncate large tool results. Dump full output to a file,
-    keep head + tail preview in context. read_file is never truncated."""
-    if tool_name == "read_file":
-        return result
-    if not result or len(result) <= _TOOL_TOKEN_THRESHOLD:
-        return result
+def truncate_tool_output(text, max_lines=_MAX_OUTPUT_LINES, max_chars=_MAX_OUTPUT_CHARS, direction="tail"):
+    """Keep at most max_lines/max_chars of text from one end, with a marker +
+    recovery hint. Never discards everything: an oversized single line is sliced
+    to a byte-safe window. Returns (bounded_text, truncated_bool)."""
+    if not text:
+        return "", False
+    total = len(text)
+    body = text[:-1] if text.endswith("\n") else text
+    lines = body.split("\n")
+    if len(lines) <= max_lines and total <= max_chars:
+        return text, False
+
+    out = []
+    used = 0
+    hit_chars = False
+    indices = range(len(lines)) if direction == "head" else range(len(lines) - 1, -1, -1)
+    for i in indices:
+        if len(out) >= max_lines:
+            break
+        size = len(lines[i]) + (1 if out else 0)
+        if used + size > max_chars:
+            hit_chars = True
+            break
+        if direction == "tail":
+            out.insert(0, lines[i])
+        else:
+            out.append(lines[i])
+        used += size
+
+    if not out:  # the boundary line alone exceeds the budget — keep a slice of it
+        line = lines[0] if direction == "head" else lines[-1]
+        out = [line[:max_chars]]
+        hit_chars = True
+
+    preview = "\n".join(out)
+    removed = max(0, total - used) if hit_chars else max(0, len(lines) - len(out))
+    unit = "chars" if hit_chars else "lines"
+    marker = f"...{removed} {unit} truncated. {_OUTPUT_RECOVERY_HINT}"
+    if direction == "tail":
+        return marker + "\n\n" + preview, True
+    return preview + "\n\n" + marker, True
+
+
+def _dump_output_to_file(tool_name, content):
+    """Persist a full tool result to the session outputs dir; returns absolute path."""
     os.makedirs(state.outputs_dir, exist_ok=True)
     fname = f"tool_{tool_name}_{uuid.uuid4().hex[:8]}.txt"
     fpath = os.path.join(state.outputs_dir, fname)
     with open(fpath, "w") as f:
-        f.write(result)
+        f.write(content)
+    return fpath
+
+
+def _truncate_tool_result(tool_name, result):
+    """Truncate large tool results. Dump full output to a file,
+    keep head + tail preview in context with an absolute path reference
+    (P1-2: the model must not have to guess where the full output lives).
+    read_file is never truncated."""
+    if tool_name == "read_file":
+        return result
+    if not result or len(result) <= _TOOL_TOKEN_THRESHOLD:
+        return result
+    fpath = _dump_output_to_file(tool_name, result)
     head = result[:_TOOL_HEAD_CHARS]
     tail = result[-_TOOL_TAIL_CHARS:]
     omitted = len(result) - _TOOL_HEAD_CHARS - _TOOL_TAIL_CHARS
@@ -78,9 +124,35 @@ def _truncate_tool_result(tool_name, result):
     else:
         preview = result
     return (
-        f"[Full output saved to {os.path.relpath(fpath, os.path.expanduser('~/.srun/sessions'))} — "
+        f"[Full output saved to {fpath} — "
         f"use read_file to access. Preview (first {_TOOL_HEAD_CHARS} + last {_TOOL_TAIL_CHARS} chars):]\n\n{preview}"
     )
+
+
+def _build_run_command_feedback(ok, out, meta):
+    """Structured run_command feedback (P1-4): real exit code, separated
+    stdout/stderr, timeout/abort flags, and bounded output with recovery hint."""
+    meta = meta or {}
+    stderr = meta.get("stderr") or ""
+    exit_code = meta.get("exit_code")
+    if exit_code is None:
+        exit_code = 0 if ok else 1
+    flags = []
+    if meta.get("timed_out"):
+        flags.append("timed_out")
+    if meta.get("aborted"):
+        flags.append("aborted")
+    flag_line = (" flags=" + ",".join(flags)) if flags else ""
+    preview, truncated = truncate_tool_output(out or "", direction="tail")
+    if truncated:
+        fpath = _dump_output_to_file("run_command", out or "")
+        preview += f"\n[Full output: {fpath} — use read_file to access]"
+    parts = [f"Exit: {exit_code}{flag_line}"]
+    if out and out.strip():
+        parts.append(f"stdout:\n{preview}")
+    if stderr and stderr.strip():
+        parts.append(f"stderr:\n{stderr[:3000]}")
+    return "\n".join(parts)
 
 
 class LLM:
@@ -138,6 +210,7 @@ class LLM:
         reasoning = False
         total_tokens = 0
         retries = 0
+        nudges = 0  # bounded "empty final response" retries
         max_steps = int(config_get("max_llm_steps") or 12)  # hard cap on agent-loop steps
         steps = 0
         hit_step_cap = False
@@ -166,8 +239,13 @@ class LLM:
                 usage = None
                 first_content = True
                 reasoning_open = False
+                last_chunk_at = time.monotonic()
 
                 for chunk in stream:
+                    now = time.monotonic()
+                    if now - last_chunk_at > _STREAM_IDLE_TIMEOUT_SECONDS:
+                        raise TimeoutError(f"stream timeout: idle for {now - last_chunk_at:.0f}s")
+                    last_chunk_at = now
                     if chunk.usage:
                         usage = chunk.usage
                     delta = chunk.choices[0].delta if chunk.choices else None
@@ -252,19 +330,21 @@ class LLM:
                                 content = bg_callback("start", command=cmd, language=lang)
                                 print(f"\033[1;32m> {cmd} [background]\033[0m", flush=True)
                             elif exec_callback and cmd:
-                                ok, out, *_ = exec_callback(cmd, lang)
+                                result = exec_callback(cmd, lang)
+                                if isinstance(result, tuple) and len(result) >= 3 and isinstance(result[2], dict):
+                                    ok, out, meta = result[0], result[1], result[2]
+                                else:
+                                    ok, out = result[0], result[1]
+                                    meta = {}
                                 if all_commands:
-                                    all_commands[-1]["output"] = out.strip() if out else ""
+                                    all_commands[-1]["output"] = (out or "").strip()
                                 # Print code + output inline (natural interleaved order)
                                 for line in cmd.split("\n"):
                                     print(f"\033[1;32m> {line}\033[0m", flush=True)
-                                stripped_out = out.strip() if out else ""
+                                stripped_out = (out or "").strip()
                                 if stripped_out:
                                     print(stripped_out)
-                                out_lines = out.strip().split("\n") if out else []
-                                if len(out_lines) > 20:
-                                    out = "\n".join(out_lines[-20:]) + f"\n... ({len(out_lines)} lines)"
-                                content = f"Exit: {'0' if ok else '1'}\n{out[:3000]}"
+                                content = _build_run_command_feedback(ok, out, meta)
                             else:
                                 content = f"queued: {cmd}"
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
@@ -319,8 +399,14 @@ class LLM:
                     state.log_conversation(messages[prev_log_len:])
                     prev_log_len = len(messages)
                     self._maybe_compact()
-                    if not exec_callback:
-                        return text if text else None, all_commands if all_commands else None, messages[conv_start:]
+                    # Without an inline exec_callback (e.g. repair mode or direct
+                    # llm.run callers), keep looping through context-gathering
+                    # tool calls (get_context, read_file, grep_search, ...) and
+                    # only hand back once the model produced run_command calls
+                    # or a final text answer. Otherwise a model that explores
+                    # first would bail with (None, None) and look like a failure.
+                    if not exec_callback and all_commands:
+                        return text if text else None, all_commands, messages[conv_start:]
                     continue
 
                 summary = text if text else None
@@ -342,6 +428,15 @@ class LLM:
                     if extracted:
                         lang = extracted.get("language") or state.current_language
                         all_commands = [{"command": extracted["command"], "language": lang}]
+                # A reasoning-only terminal message (no text, no tool calls) after
+                # exploration is not a usable answer — nudge once so a turn never
+                # ends silently with (None, None).
+                if summary is None and not all_commands and nudges < 2:
+                    nudges += 1
+                    messages.append({"role": "user",
+                                     "content": "[system] Your previous response contained no content. "
+                                                "Provide your final answer or the command to run now."})
+                    continue
                 # Append final assistant text to messages so conversation is complete
                 if summary:
                     messages.append({"role": "assistant", "content": summary})

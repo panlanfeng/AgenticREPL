@@ -81,9 +81,9 @@ class PythonExecutor:
             return (False,
                     f"Python execution timed out after {timeout}s — code interrupted. "
                     "Note: child threads/subprocesses may still be running.",
-                    stdout.getvalue(), stderr.getvalue(), 124)
+                    stdout.getvalue(), stderr.getvalue(), 124, {"timed_out": True})
         except Exception as e:
-            return False, f"{type(e).__name__}: {e}", stdout.getvalue(), stderr.getvalue(), 1
+            return False, f"{type(e).__name__}: {e}", stdout.getvalue(), stderr.getvalue(), 1, {}
         finally:
             if old_handler is not None:
                 signal.setitimer(signal.ITIMER_REAL, 0)
@@ -93,7 +93,7 @@ class PythonExecutor:
         output = stdout.getvalue()
         error_output = stderr.getvalue()
         self._track_vars()
-        return True, output, error_output, 0
+        return True, output, error_output, 0, {}
 
     def _track_vars(self):
         try:

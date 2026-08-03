@@ -189,20 +189,20 @@ class ShellExecutor:
         if self._ssh_process:
             ok, out, exit_code = self._send_ssh_command(stripped)
             if not ok:
-                return False, out, out, exit_code
+                return False, out, out, exit_code, {}
             if exit_code != 0:
-                return False, out, out, exit_code
-            return True, out, "", 0
+                return False, out, out, exit_code, {}
+            return True, out, "", 0, {}
 
         # Local: subprocess.run
         if _needs_tty(stripped):
-            rc = self._run_tty(stripped, timeout)
-            return rc == 0, "", "", 0 if rc == 0 else rc
+            rc, timed_out = self._run_tty(stripped, timeout)
+            return rc == 0, "", "", rc, {"timed_out": timed_out}
 
         try:
             out, err, rc, timed_out = self._run_captured(stripped, timeout)
         except Exception as e:
-            return False, f"Error: {e}", "", -1
+            return False, f"Error: {e}", "", -1, {}
 
         output = out
         if err:
@@ -214,10 +214,10 @@ class ShellExecutor:
                 os.chdir(new_cwd)
 
         if timed_out:
-            return False, output, err, 124
+            return False, output, err, 124, {"timed_out": True}
         if rc != 0:
-            return False, output, err, rc
-        return True, output, err, 0
+            return False, output, err, rc, {}
+        return True, output, err, 0, {}
 
     def _run_captured(self, command, timeout):
         """Run a command capturing output. Kills the whole process group on timeout."""
@@ -254,10 +254,10 @@ class ShellExecutor:
             start_new_session=True,
         )
         try:
-            return proc.wait(timeout=timeout if timeout and timeout > 0 else None)
+            return proc.wait(timeout=timeout if timeout and timeout > 0 else None), False
         except subprocess.TimeoutExpired:
             self._kill_process_tree(proc)
-            return 124
+            return 124, True
 
     def _kill_process_tree(self, proc):
         """SIGTERM then SIGKILL the whole process group (start_new_session=True)."""

@@ -39,26 +39,42 @@ def get_command_help(command):
 
 
 def search_files(pattern):
+    """Search filenames in cwd. Uses ripgrep when available so .gitignore is
+    respected and hidden dirs are skipped; falls back to an os.walk scan."""
     cwd = os.getcwd()
+    rg = shutil.which("rg")
+    rel_paths = []
+    if rg:
+        try:
+            r = subprocess.run([rg, "--files"], capture_output=True, text=True, timeout=30, cwd=cwd)
+            rel_paths = r.stdout.splitlines()
+        except Exception:
+            rel_paths = []
+    if not rel_paths:
+        for root, dirs, files in os.walk(cwd):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for name in files + dirs:
+                rel_paths.append(os.path.relpath(os.path.join(root, name), cwd))
     matches = []
-    for root, dirs, files in os.walk(cwd):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for name in files + dirs:
-            if re.search(re.escape(pattern).replace(r"\*", ".*"), name, re.IGNORECASE):
-                rel = os.path.relpath(os.path.join(root, name), cwd)
-                size = os.path.getsize(os.path.join(root, name)) if os.path.isfile(os.path.join(root, name)) else None
-                entry = rel
-                if size is not None:
-                    if size < 1024:
-                        entry += f" ({size}B)"
-                    elif size < 1024 * 1024:
-                        entry += f" ({size/1024:.0f}KB)"
-                    else:
-                        entry += f" ({size/1024/1024:.1f}MB)"
-                matches.append(entry)
+    for rel in rel_paths:
+        name = os.path.basename(rel)
+        if re.search(re.escape(pattern).replace(r"\*", ".*"), name, re.IGNORECASE):
+            abs_path = os.path.join(cwd, rel)
+            size = os.path.getsize(abs_path) if os.path.isfile(abs_path) else None
+            entry = rel
+            if size is not None:
+                if size < 1024:
+                    entry += f" ({size}B)"
+                elif size < 1024 * 1024:
+                    entry += f" ({size/1024:.0f}KB)"
+                else:
+                    entry += f" ({size/1024/1024:.1f}MB)"
+            matches.append(entry)
+            if len(matches) >= 20:
+                break
     if not matches:
         return f"No files matching '{pattern}'"
-    return "\n".join(matches[:20])
+    return "\n".join(matches)
 
 
 def read_file(path, lines=None):
@@ -469,7 +485,9 @@ def file_write(path, content):
 
 
 def file_edit(path, old_string, new_string):
-    """Replace old_string with new_string in a file. First exact match only."""
+    """Replace old_string with new_string in a file. Exact match first; if no
+    exact match, falls back to whitespace-tolerant matching (indentation /
+    line-ending drift) only when unambiguous."""
     resolved = os.path.expanduser(path)
     if not os.path.isabs(resolved):
         resolved = os.path.join(os.getcwd(), resolved)
@@ -479,14 +497,30 @@ def file_edit(path, old_string, new_string):
         with open(resolved, "r", encoding="utf-8") as f:
             content = f.read()
         count = content.count(old_string)
-        if count == 0:
-            return f"No match found for the given old_string in {resolved}"
-        if count > 1:
+        if count == 1:
+            content = content.replace(old_string, new_string, 1)
+            matched_via = "exact"
+        elif count > 1:
             return f"Found {count} matches — old_string must be unique. Provide more context to make it unique."
-        content = content.replace(old_string, new_string, 1)
+        else:
+            # P2-2: whitespace-tolerant fallback (indentation / line-ending drift)
+            parts = [p for p in re.split(r"\s+", old_string.strip()) if p]
+            if not parts:
+                return f"No match found for the given old_string in {resolved}"
+            pattern = r"\s+".join(re.escape(p) for p in parts)
+            fuzzy = list(re.finditer(pattern, content))
+            if len(fuzzy) == 1:
+                m = fuzzy[0]
+                content = content[:m.start()] + new_string + content[m.end():]
+                matched_via = "fuzzy"
+            elif len(fuzzy) > 1:
+                return (f"Found {len(fuzzy)} fuzzy matches — old_string must be unique. "
+                        "Provide more context to make it unique.")
+            else:
+                return f"No match found for the given old_string in {resolved}"
         with open(resolved, "w", encoding="utf-8") as f:
             f.write(content)
-        return f"Replaced 1 occurrence in {resolved}"
+        return f"Replaced 1 occurrence in {resolved} (matched via {matched_via})"
     except Exception as e:
         return f"Error editing {resolved}: {e}"
 

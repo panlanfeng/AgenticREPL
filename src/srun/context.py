@@ -311,6 +311,8 @@ class SessionState:
             "Summarize the conversation so far into a concise context block. "
             "Include: what the user has been working on, key files and variables, "
             "languages used, important commands and their results, and any errors encountered. "
+            "For every unfinished subtask, state the current conclusion and WHY (what was "
+            "decided and the reasoning), so work can continue without re-discovery. "
             "Keep it under 500 words."
         )
         summary_msgs = msgs + [{"role": "user", "content": summary_prompt}]
@@ -332,7 +334,30 @@ class SessionState:
         if len(assistant_indices) <= 6:
             return False
         cutoff = assistant_indices[-6]
-        self._stable_summary = summary
+
+        # P1-3: preserve dropped tool outputs as recoverable artifact files so
+        # compaction never destroys evidence — the summary keeps absolute paths.
+        artifact_note = ""
+        dropped = self._conversation[:cutoff]
+        dropped_outputs = [m.get("content", "") for m in dropped
+                           if m.get("role") == "tool"
+                           and isinstance(m.get("content"), str)
+                           and m.get("content", "").strip()]
+        if dropped_outputs:
+            import datetime as _datetime
+            os.makedirs(self.outputs_dir, exist_ok=True)
+            fname = (f"compaction_{_datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+                     f"{uuid.uuid4().hex[:6]}.txt")
+            fpath = os.path.join(self.outputs_dir, fname)
+            with open(fpath, "w") as f:
+                for i, content in enumerate(dropped_outputs):
+                    f.write(f"--- tool result {i + 1} ---\n{content}\n\n")
+            artifact_note = (
+                f"\n\n[Recoverable artifacts from compacted turns: {fpath} — "
+                "use read_file if you need a dropped tool result verbatim.]"
+            )
+
+        self._stable_summary = summary + artifact_note
         self._conversation = self._conversation[cutoff:]
         self._cached_messages = None  # invalidate — conversation truncated + summary changed
         self._write_compaction_snapshot()

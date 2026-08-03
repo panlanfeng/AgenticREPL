@@ -1011,8 +1011,9 @@ class TestShellExecutorEdge:
     def test_execute_command_not_found(self):
         """Shell executor with command not found."""
         sh = ShellExecutor()
-        ok, out, stderr, rc = sh.execute("this_command_does_not_exist_xyz")
+        ok, out, stderr, rc, meta = sh.execute("this_command_does_not_exist_xyz")
         assert not ok
+        assert isinstance(meta, dict)
         # Should have non-zero return code
         if rc != 0:
             assert rc != 0
