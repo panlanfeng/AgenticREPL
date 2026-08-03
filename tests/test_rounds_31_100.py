@@ -79,19 +79,19 @@ class TestRExecutor:
 
     def test_r_simple_expression(self):
         """Simple arithmetic expression."""
-        ok, out, _ = self.executor.execute("1 + 2")
+        ok, out, *rest = self.executor.execute("1 + 2")
         assert ok, f"R expression failed: {out}"
         assert "3" in out, f"Expected 3 in output: {out}"
 
     def test_r_syntax_error(self):
         """R syntax error should return ok=False with error info."""
-        ok, out, _ = self.executor.execute("foo bar baz")
+        ok, out, *rest = self.executor.execute("foo bar baz")
         # R will print error and mark it
         assert not ok, f"Expected failure for syntax error, got ok=True: {out}"
 
     def test_r_warning(self):
         """R warning should be captured in output, should NOT return ok=False unless it's an error."""
-        ok, out, _ = self.executor.execute("as.numeric('hello')")
+        ok, out, *rest = self.executor.execute("as.numeric('hello')")
         # as.numeric('hello') produces NA with warning - not an error
         assert ok, f"as.numeric NA should succeed: {out}"
 
@@ -100,7 +100,7 @@ class TestRExecutor:
         before printing the __SRUN_END__ marker. The executor breaks out of
         the read loop when the process dies but falls through to the timeout
         handler without returning the accumulated output. Output is lost."""
-        ok, out, _ = self.executor.execute("stop('custom error message')")
+        ok, out, *rest = self.executor.execute("stop('custom error message')")
         # Known bug: R stop() causes timeout, not error propagation
         # The error message IS in stdout but gets lost after process death
         assert not ok, f"stop() should return failure: {out}"
@@ -112,39 +112,48 @@ class TestRExecutor:
         code = """x <- 5
 y <- 10
 x + y"""
-        ok, out, _ = self.executor.execute(code)
+        ok, out, *rest = self.executor.execute(code)
         assert ok, f"Multi-line R failed: {out}"
         assert "15" in out, f"Expected 15 in: {out}"
 
     def test_r_empty_output(self):
         """R code that produces no output."""
-        ok, out, _ = self.executor.execute("x <- 42")
+        ok, out, *rest = self.executor.execute("x <- 42")
         assert ok, f"Assignment failed: {out}"
         # Output may be empty or just contain subtle markers
 
     def test_r_non_ascii(self):
         """R with non-ASCII characters (CJK, emoji, accented)."""
-        ok, out, _ = self.executor.execute('print("héllo wörld 你好")')
+        ok, out, *rest = self.executor.execute('print("héllo wörld 你好")')
         assert ok, f"Non-ASCII print failed: {out}"
         assert "héllo" in out
 
     def test_r_process_recovery_after_error(self):
         """After a process error, _ensure_process should recreate it."""
-        ok1, out1, _ = self.executor.execute("1 + 1")
+        ok1, out1, *rest1 = self.executor.execute("1 + 1")
         assert ok1
-        ok2, out2, _ = self.executor.execute("stop('crash test')")
+        ok2, out2, *rest2 = self.executor.execute("stop('crash test')")
         assert not ok2
         # After error that sets process to None, next command should work
-        ok3, out3, _ = self.executor.execute("2 + 2")
+        ok3, out3, *rest3 = self.executor.execute("2 + 2")
         assert ok3, f"Process should recover after error: {out3}"
         assert "4" in out3
 
     def test_r_multiple_expressions_in_sequence(self):
         """Multiple R expressions one after another."""
         self.executor.execute("x <- 10")
-        ok, out, _ = self.executor.execute("x * 2")
+        ok, out, *rest = self.executor.execute("x * 2")
         assert ok
         assert "20" in out
+
+    def test_r_structured_meta(self):
+        """R success reports exit 0 and empty stderr; timeout sets timed_out."""
+        ok, out, err, rc, meta = self.executor.execute("1 + 2")
+        assert ok
+        assert rc == 0, f"R success should report exit 0, got {rc}"
+        assert err == "", f"R stderr should be empty on success, got {err!r}"
+        assert isinstance(meta, dict)
+        assert not meta.get("timed_out")
 
 
 # ═══════════════════════════════════════════════════════════════════

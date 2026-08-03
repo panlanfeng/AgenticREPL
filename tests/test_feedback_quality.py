@@ -148,6 +148,32 @@ class TestRunCommandFeedback:
         assert "Exit: 130" in content
         assert "flags=aborted" in content
 
+    def test_build_feedback_splits_merged_stderr(self):
+        """Shell executor returns out = stdout + stderr merged; rendering must
+        show each stream once, not duplicate stderr inside stdout."""
+        content = _build_run_command_feedback(
+            True, "hello\nwarning!", {"exit_code": 0, "stderr": "warning!"}
+        )
+        assert "stdout:\nhello" in content
+        assert "stderr:\nwarning!" in content
+        assert content.count("warning!") == 1
+
+    def test_build_feedback_keeps_merged_when_not_suffix(self):
+        """When stderr is not a suffix of out (e.g. python/R), keep out intact."""
+        content = _build_run_command_feedback(
+            True, "pure stdout", {"exit_code": 0, "stderr": "warn"}
+        )
+        assert "stdout:\npure stdout" in content
+
+    def test_build_feedback_stderr_only_not_duplicated(self):
+        """A command whose whole output is stderr (out == err, e.g. ls missing
+        path) must render the message once, in the stderr section only."""
+        err = "ls: cannot access '/tmp/x': No such file or directory\n"
+        content = _build_run_command_feedback(False, err, {"exit_code": 2, "stderr": err})
+        assert "stdout:" not in content
+        assert "stderr:" in content
+        assert content.count("No such file") == 1
+
 
 # ── P2-3: conservative _extract_command_from_text ──────────────────
 

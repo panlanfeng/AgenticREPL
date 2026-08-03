@@ -142,7 +142,8 @@ class RExecutor:
                     ok = rc is None or rc == 0
                     if not ok:
                         self._process = None
-                    return ok, out, stderr_out if stderr_out else out, rc if rc is not None else -1, {}
+                    # err carries only real stderr; persistent process alive ⇒ exit 0
+                    return ok, out, stderr_out, (0 if rc is None else rc), {}
                 stripped = line.rstrip("\n")
                 if stripped and not stripped.startswith("> ") and not stripped.startswith("+ "):
                     output_lines.append(stripped)
@@ -158,7 +159,7 @@ class RExecutor:
                 ok = rc is None or rc == 0
                 if not ok:
                     self._process = None
-                return ok, out, stderr_out if stderr_out else out, rc if rc is not None else -1, {}
+                return ok, out, stderr_out, (0 if rc is None else rc), {}
 
             try:
                 self._process.kill()

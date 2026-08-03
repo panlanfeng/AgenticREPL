@@ -10,6 +10,7 @@ DEFAULTS = {
     "max_retry_rounds": 4,
     "exec_timeout_seconds": 120,  # kill commands that run longer than this (0 = no timeout)
     "max_llm_steps": 12,          # hard cap on LLM agent-loop steps per turn (tool calls)
+    "llm_timeout_seconds": 300,   # total LLM request timeout; reasoning models can be slow
     "provider": "deepseek",  # provider preset (deepseek, openai, anthropic, ...)
     "api_key": "",
     "api_base": "",          # override provider's default base URL
@@ -27,6 +28,7 @@ TYPES = {
     "max_retry_rounds": int,
     "exec_timeout_seconds": int,
     "max_llm_steps": int,
+    "llm_timeout_seconds": int,
     "provider": str,
     "api_key": str,
     "api_base": str,

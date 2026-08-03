@@ -106,6 +106,19 @@ def _dump_output_to_file(tool_name, content):
     return fpath
 
 
+def _split_merged_stderr(out, err):
+    """Shell executor returns out = stdout + stderr merged. Recover pure stdout
+    when err is a non-trivial suffix of out; otherwise keep out unchanged."""
+    if not err or not out or len(err) < 3:
+        return out
+    if out == err:  # stdout was empty — the whole merged output is stderr
+        return ""
+    if out.endswith(err):
+        pure = out[:-len(err)]
+        return pure if pure else out
+    return out
+
+
 def _truncate_tool_result(tool_name, result):
     """Truncate large tool results. Dump full output to a file,
     keep head + tail preview in context with an absolute path reference
@@ -143,12 +156,13 @@ def _build_run_command_feedback(ok, out, meta):
     if meta.get("aborted"):
         flags.append("aborted")
     flag_line = (" flags=" + ",".join(flags)) if flags else ""
-    preview, truncated = truncate_tool_output(out or "", direction="tail")
+    stdout_view = _split_merged_stderr(out or "", stderr)
+    preview, truncated = truncate_tool_output(stdout_view, direction="tail")
     if truncated:
         fpath = _dump_output_to_file("run_command", out or "")
         preview += f"\n[Full output: {fpath} — use read_file to access]"
     parts = [f"Exit: {exit_code}{flag_line}"]
-    if out and out.strip():
+    if stdout_view and stdout_view.strip():
         parts.append(f"stdout:\n{preview}")
     if stderr and stderr.strip():
         parts.append(f"stderr:\n{stderr[:3000]}")
@@ -159,8 +173,9 @@ class LLM:
     def __init__(self):
         self.client = None
         if config.has_llm:
+            request_timeout = float(config_get("llm_timeout_seconds") or 300)
             self.client = OpenAI(api_key=config.api_key, base_url=config.api_base,
-                                  timeout=httpx.Timeout(120.0, connect=10.0))
+                                  timeout=httpx.Timeout(request_timeout, connect=10.0))
         self._hit_tokens = 0
         self._miss_tokens = 0
         self._last_output = ""  # captured output from last inline run_command
