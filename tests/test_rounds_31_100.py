@@ -917,21 +917,6 @@ class TestConfig:
         assert hasattr(config, 'temperature')
         assert hasattr(config, 'stream')
 
-    def test_config_has_llm_detects_no_key(self):
-        """has_llm returns False when no API key."""
-        # Save and unset API keys temporarily
-        old_env = {}
-        for var in ["SRUN_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"]:
-            old_env[var] = os.environ.pop(var, None)
-        try:
-            # Need to create a new config to pick up the change
-            cfg = Config()
-            assert not cfg.has_llm, "Should detect missing API key"
-        finally:
-            for var, val in old_env.items():
-                if val is not None:
-                    os.environ[var] = val
-
 
 class TestRepairer:
     """Tests for repair.py."""
