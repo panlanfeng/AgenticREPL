@@ -15,9 +15,11 @@ from srun.context import state
 from srun.llm import (
     _extract_command_from_text,
     _build_run_command_feedback,
+    _truncate_tool_result,
     truncate_tool_output,
 )
-from srun.tools import file_edit, file_write, search_files
+from srun.executors.shell_exec import ShellExecutor
+from srun.tools import file_edit, file_write, read_file, search_files
 
 
 # ── fake OpenAI stream (same shape as test_agent_loop.py) ─────────
@@ -294,3 +296,94 @@ class TestFileEditFuzzy:
         result = file_edit("code.py", "hello world", "goodbye")
         assert "exact" in result
         assert "goodbye" in p.read_text()
+
+
+# ── 大工具结果：只留 tail、落盘、绝对路径提示、read_file 有界 ────
+
+class TestLargeToolOutput:
+    """大输出三种场景：run_command 大输出、cat 长文件、read_file 大文件。"""
+
+    @staticmethod
+    def _big_text(n=10000):
+        return "\n".join(f"line {i}" for i in range(n))
+
+    def test_run_command_large_output_tail_and_dump(self):
+        """run_command 大输出：只保留 tail，全文落盘，反馈带绝对路径。"""
+        out = self._big_text(10000)  # ~70KB > 50KB 上限
+        content = _build_run_command_feedback(True, out, {"exit_code": 0, "stderr": ""})
+        assert "truncated" in content
+        assert "line 9999" in content       # tail 保留
+        assert "line 0" not in content      # head 截掉
+        assert "[Full output:" in content
+        path = content.split("[Full output: ")[1].split(" — ")[0]
+        assert os.path.isfile(path)
+        with open(path) as f:
+            assert f.read() == out          # 落盘内容完整
+
+    def test_cat_long_file_through_executor(self, tmp_path):
+        """模型用 cat 把长文件打进上下文 → 同样被截断并落盘。"""
+        big = tmp_path / "big.txt"
+        big.write_text(self._big_text(10000) + "\n")
+        sh = ShellExecutor()
+        ok, out, err, rc, meta = sh.execute(f"cat {big}")
+        assert ok
+        content = _build_run_command_feedback(ok, out, {"stderr": err, "exit_code": rc})
+        assert "truncated" in content
+        assert "line 9999" in content
+        assert "line 0" not in content
+
+    def test_read_file_large_bounded_preview(self, tmp_path):
+        """read_file 大文件：head+tail 有界预览 + 绝对路径，中段不注入上下文。"""
+        big = tmp_path / "big.txt"
+        big.write_text(self._big_text(5000) + "\n")  # 5000 行 > 2000 行上限
+        result = read_file(str(big))
+        assert "5000 lines" in result
+        assert "line 0" in result            # head
+        assert "line 4999" in result         # tail
+        assert "line 2500" not in result     # 中段被截
+        assert str(big) in result            # 绝对路径提示
+        assert len(result) < 60 * 1024
+
+    def test_read_file_offset_paging(self, tmp_path):
+        """模型可用 offset+lines 分页读回被省略的段落。"""
+        big = tmp_path / "big.txt"
+        big.write_text(self._big_text(5000) + "\n")
+        result = read_file(str(big), offset=3000, lines=5)
+        assert "line 3000" in result
+        assert "line 3004" in result
+        assert "line 0" not in result
+        assert "offset=3005" in result       # 续读提示
+
+    def test_read_file_lines_from_start(self, tmp_path):
+        """lines 参数保持向后兼容：从文件开头读 N 行。"""
+        big = tmp_path / "big.txt"
+        big.write_text(self._big_text(500) + "\n")
+        result = read_file(str(big), lines=3)
+        assert "line 0" in result and "line 1" in result and "line 2" in result
+        assert "line 3" not in result
+
+    def test_read_file_too_large_guard(self, tmp_path):
+        big = tmp_path / "huge.bin"
+        big.write_bytes(b"x" * (300 * 1024))
+        result = read_file(str(big))
+        assert "File too large" in result
+        assert str(big) in result
+
+    def test_truncate_tool_result_generic_tail_and_dump(self):
+        """通用工具结果（如 grep 大输出）：tail 预览 + 落盘 + 绝对路径。"""
+        result = _truncate_tool_result("grep_search", self._big_text(10000))
+        assert "[Full output saved to" in result
+        assert "line 9999" in result
+        assert "line 0" not in result
+        path = result.split("[Full output saved to ")[1].split(" — ")[0]
+        assert os.path.isfile(path)
+
+    def test_truncate_passthrough_small(self):
+        assert _truncate_tool_result("grep_search", "small") == "small"
+
+    def test_read_file_not_dumped_again(self, tmp_path):
+        """read_file 结果已由工具自身有界化，_truncate_tool_result 直接透传。"""
+        big = tmp_path / "big.txt"
+        big.write_text(self._big_text(5000) + "\n")
+        read_result = read_file(str(big))
+        assert _truncate_tool_result("read_file", read_result) == read_result

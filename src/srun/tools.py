@@ -77,7 +77,11 @@ def search_files(pattern):
     return "\n".join(matches)
 
 
-def read_file(path, lines=None):
+def read_file(path, lines=None, offset=None):
+    """Read a file, bounded so large files never flood the LLM context.
+    Full reads are capped at 2000 lines / 50KB (maka-agent limits) with a
+    head+tail preview and the absolute path, so the model can page the rest
+    via read_file(path, offset=..., lines=...)."""
     resolved = os.path.expanduser(path)
     if not os.path.isabs(resolved):
         resolved = os.path.join(os.getcwd(), resolved)
@@ -86,17 +90,39 @@ def read_file(path, lines=None):
     try:
         size = os.path.getsize(resolved)
         if size > 256 * 1024:
-            return (f"File too large ({size}B > 256KB). Use offset and limit parameters "
-                    f"to read selected lines, or grep_search for specific patterns.")
+            return (f"File too large ({size}B > 256KB). Use read_file with offset and lines "
+                    f"parameters to read selected ranges, or grep_search for specific patterns.\n"
+                    f"Full file: {resolved}")
         with open(resolved, encoding="utf-8", errors="replace") as f:
-            if lines:
-                content = "".join(f.readline() for _ in range(lines))
-            else:
-                content = f.read()
-        if len(content) > 25000:
-            content = content[:25000] + "\n... (truncated, use offset/limit or grep_search for more)"
-        content = _redact_secrets(resolved, content)
-        return f"--- {resolved} ({size}B) ---\n{content}"
+            all_lines = f.readlines()
+        total_lines = len(all_lines)
+        start = max(0, int(offset or 0))
+
+        if lines:
+            n = max(0, int(lines))
+            selected = "".join(all_lines[start:start + n])
+            note = ""
+            if start + n < total_lines:
+                note = (f"\n... (lines {start + 1}-{min(start + n, total_lines)} of {total_lines}; "
+                        f"call read_file with offset={start + n} to continue)")
+            content = f"--- {resolved} ({size}B, {total_lines} lines) ---\n{selected}{note}"
+            return _redact_secrets(resolved, content)
+
+        # Bounded full read — maka-agent limits: 2000 lines / 50KB
+        MAX_READ_LINES = 2000
+        MAX_READ_CHARS = 50 * 1024
+        if total_lines <= MAX_READ_LINES and size <= MAX_READ_CHARS:
+            content = f"--- {resolved} ({size}B) ---\n" + "".join(all_lines)
+            return _redact_secrets(resolved, content)
+        half = MAX_READ_LINES // 2
+        head = "".join(all_lines[:half])
+        tail = "".join(all_lines[-half:])
+        omitted_lines = total_lines - 2 * half
+        omitted_chars = max(0, size - len(head) - len(tail))
+        preview = (f"--- {resolved} ({size}B, {total_lines} lines) ---\n{head}"
+                   f"\n... ({omitted_lines} lines / ~{omitted_chars} chars omitted; "
+                   f"call read_file with offset and lines to page through) ...\n{tail}")
+        return _redact_secrets(resolved, preview)
     except Exception as e:
         return f"Error reading {path}: {e}"
 
@@ -293,12 +319,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read contents of a file. Use to understand file structure, data format, or code before generating commands.",
+            "description": "Read contents of a file, bounded to a head+tail preview for large files. Use offset + lines to page through specific ranges. Use to understand file structure, data format, or code before generating commands.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Path to the file to read"},
-                    "lines": {"type": "integer", "description": "Number of lines to read (default: all up to 10000 chars)"},
+                    "lines": {"type": "integer", "description": "Number of lines to read from the offset (default: bounded full read)"},
+                    "offset": {"type": "integer", "description": "Zero-based line offset to start reading from (default 0)"},
                 },
                 "required": ["path"],
             },

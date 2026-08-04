@@ -38,10 +38,6 @@ def _extract_command_from_text(text):
     return None
 
 
-_TOOL_TOKEN_THRESHOLD = 20000  # chars ≈ 5000 tokens; beyond this, dump to file
-_TOOL_HEAD_CHARS = 3000       # first ~750 tokens shown in context preview
-_TOOL_TAIL_CHARS = 5000       # last ~1250 tokens shown in context preview
-
 # P1-1: bounded, recoverable tool-result feedback (Maka-style).
 _MAX_OUTPUT_LINES = 2000        # max lines kept before truncation
 _MAX_OUTPUT_CHARS = 50 * 1024   # max chars kept before truncation
@@ -120,25 +116,21 @@ def _split_merged_stderr(out, err):
 
 
 def _truncate_tool_result(tool_name, result):
-    """Truncate large tool results. Dump full output to a file,
-    keep head + tail preview in context with an absolute path reference
-    (P1-2: the model must not have to guess where the full output lives).
-    read_file is never truncated."""
+    """Bound large tool results. Small results pass through; oversized ones are
+    dumped to a file and only a tail preview (2000 lines / 50KB, maka-agent
+    limits) stays in context, with the absolute path so the model can
+    read_file the rest. read_file results are already bounded by the tool."""
     if tool_name == "read_file":
         return result
-    if not result or len(result) <= _TOOL_TOKEN_THRESHOLD:
+    if not result:
+        return result
+    preview, truncated = truncate_tool_output(result, direction="tail")
+    if not truncated:
         return result
     fpath = _dump_output_to_file(tool_name, result)
-    head = result[:_TOOL_HEAD_CHARS]
-    tail = result[-_TOOL_TAIL_CHARS:]
-    omitted = len(result) - _TOOL_HEAD_CHARS - _TOOL_TAIL_CHARS
-    if omitted > 0:
-        preview = head + f"\n... ({omitted} chars omitted) ...\n" + tail
-    else:
-        preview = result
     return (
-        f"[Full output saved to {fpath} — "
-        f"use read_file to access. Preview (first {_TOOL_HEAD_CHARS} + last {_TOOL_TAIL_CHARS} chars):]\n\n{preview}"
+        f"[Full output saved to {fpath} — use read_file to access. "
+        f"Tail preview:\n\n{preview}"
     )
 
 
