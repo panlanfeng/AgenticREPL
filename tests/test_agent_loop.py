@@ -62,10 +62,16 @@ class _FakeClient:
 def fake_llm(monkeypatch):
     client = _FakeClient()
     monkeypatch.setattr(llm_module.llm, "client", client)
+    def _config(key):
+        if key == "max_llm_steps":
+            return 2
+        if key == "verify_results":
+            return False
+        return 12
     monkeypatch.setattr(
         llm_module,
         "config_get",
-        lambda key: 2 if key == "max_llm_steps" else 12,
+        _config,
     )
     state.reset_session()
     yield client

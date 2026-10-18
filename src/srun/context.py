@@ -6,6 +6,8 @@ import platform
 import shutil
 import subprocess
 
+from .eventlog import EventLog
+
 BASE_DIR = os.path.join(os.path.expanduser("~"), ".srun")
 
 
@@ -26,6 +28,8 @@ STATE_FILE = os.path.join(SESSION_DIR, "state.json")
 CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")  # deprecated — use full_history.jsonl
 FULL_HISTORY_FILE = os.path.join(SESSION_DIR, "full_history.jsonl")
 OUTPUTS_DIR = os.path.join(SESSION_DIR, "outputs")
+EVENTS_FILE = os.path.join(SESSION_DIR, "events.jsonl")
+ATIF_FILE = os.path.join(SESSION_DIR, "trajectory.json")
 
 
 def _detect_python_versions():
@@ -181,8 +185,14 @@ class SessionState:
         self.full_history_path = FULL_HISTORY_FILE
         self.outputs_dir = OUTPUTS_DIR
         self.state_path = STATE_FILE
+        self.events_path = EVENTS_FILE
+        self.trajectory_path = ATIF_FILE
+        self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
+        self.last_contract = None
+        self.last_verification = None
 
     def reset_session(self):
+        self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
         self._conversation = []
         self._stable_summary = None
         self._cached_messages = None
@@ -194,6 +204,8 @@ class SessionState:
         self.last_dispatch_error = None
         self._context_injected = False
         self._llm_last_known_language = self._current_language
+        self.last_contract = None
+        self.last_verification = None
 
     def resume_session(self, session_id):
         """Resume a previous session by ID. Loads its history and redirects
@@ -207,9 +219,15 @@ class SessionState:
         self.full_history_path = target_history
         self.outputs_dir = os.path.join(target_dir, "outputs")
         self.state_path = os.path.join(target_dir, "state.json")
+        self.events_path = os.path.join(target_dir, "events.jsonl")
+        self.trajectory_path = os.path.join(target_dir, "trajectory.json")
+        self.event_log = EventLog(self.events_path, session_id=session_id)
+        self.last_contract = None
+        self.last_verification = None
         self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(self.outputs_dir, exist_ok=True)
         self._load_conversation_state()
+        self.write_atif()
         return True
 
     def build_conversation_messages(self, system_prompt):
@@ -373,6 +391,11 @@ class SessionState:
             "summary": self._stable_summary,
             "conversation": self._conversation,
         }
+        self.append_event(
+            "compaction",
+            {"summary": self._stable_summary, "conversation": self._conversation},
+            turn=self._turn + 1,
+        )
         os.makedirs(self.session_dir, exist_ok=True)
         with open(self.full_history_path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -382,6 +405,11 @@ class SessionState:
         llm_conversation entries store deltas (only new messages per turn);
         compaction_snapshot resets the conversation and sets the summary.
         state.json stores current_language for resume functionality."""
+        # The append-only event log is authoritative. Legacy full_history.jsonl
+        # remains a derived compatibility view for older sessions.
+        if os.path.isfile(self.events_path):
+            self._replay_event_log()
+            return
         # Restore language from state.json
         if os.path.isfile(self.state_path):
             try:
@@ -427,13 +455,51 @@ class SessionState:
         except Exception:
             pass
 
+    def _replay_event_log(self):
+        """Rebuild in-memory session state from events.jsonl after a crash."""
+        replayed = self.event_log.replay()
+        self._conversation = list(replayed.get("conversation") or [])
+        self._stable_summary = replayed.get("summary")
+        self.session_log = list(replayed.get("session_log") or [])
+        self._turn = int(replayed.get("turn") or 0)
+        self._current_language = replayed.get("current_language") or "shell"
+        self.last_lang = replayed.get("last_lang")
+        self.vars = dict(replayed.get("vars") or {})
+        self.active_df = replayed.get("active_df")
+        self.last_contract = replayed.get("contract")
+        self.last_verification = replayed.get("last_verification")
+        self._cached_messages = None
+        self._cached_conv_len = 0
+        self._cached_summary = None
+        if self._conversation:
+            self._context_injected = True
+            self._last_known_cwd = os.getcwd()
+
+    def append_event(self, event_type, payload=None, turn=None, round=None):
+        """Append one authoritative event. Failures are surfaced, not hidden."""
+        try:
+            return self.event_log.append(event_type, payload, turn=turn, round=round)
+        except Exception as exc:
+            self.last_dispatch_error = f"event log write failed: {exc}"
+            return None
+
+    def write_atif(self):
+        """Atomically rebuild the derived ATIF trajectory from events.jsonl."""
+        try:
+            return self.event_log.write_atif(self.trajectory_path)
+        except Exception as exc:
+            self.last_dispatch_error = f"ATIF export failed: {exc}"
+            return None
+
     def log_entry(self, **kwargs):
         self._turn += 1
         entry = {"turn": self._turn, "cwd": os.getcwd(), **kwargs}
         self.session_log.append(entry)
         if len(self.session_log) > 200:
             self.session_log = self.session_log[-200:]
+        self.append_event("turn_result", {"entry": entry}, turn=self._turn)
         self._write_history(entry)
+        self.write_atif()
 
     def _write_history(self, entry):
         """Write a structured history entry to full_history.jsonl.
@@ -490,6 +556,9 @@ class SessionState:
             "timestamp": _datetime.datetime.now().isoformat(),
             "messages": clean,
         }
+        self.append_event(
+            "llm_conversation", {"messages": clean}, turn=self._turn + 1
+        )
         with open(self.full_history_path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -606,24 +675,36 @@ class SessionState:
 
     def save_state(self):
         """Always persist critical session state so resume works after restart."""
-        os.makedirs(SESSION_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
         state_data = {
-            "session_id": SESSION_ID,
+            "session_id": os.path.basename(self.session_dir),
             "current_language": self.current_language,
             "last_lang": self.last_lang,
             "vars": {k: v for k, v in self.vars.items()},
             "active_df": self.active_df,
         }
-        with open(STATE_FILE, "w") as f:
+        self.append_event(
+            "session_state",
+            {
+                "current_language": self.current_language,
+                "last_lang": self.last_lang,
+                "vars": {k: v for k, v in self.vars.items()},
+                "active_df": self.active_df,
+                "state_path": self.state_path,
+            },
+            turn=self._turn,
+        )
+        with open(self.state_path, "w") as f:
             json.dump(state_data, f, indent=2)
+        self.write_atif()
 
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
             self.save_state()
             return
-        os.makedirs(SESSION_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
         state_data = {
-            "session_id": SESSION_ID,
+            "session_id": os.path.basename(self.session_dir),
             "system": get_system_info(),
             "workspace": {"files": get_file_meta()},
             "session": {
@@ -634,8 +715,20 @@ class SessionState:
                 "log": self.session_log[-20:],
             },
         }
-        with open(STATE_FILE, "w") as f:
+        self.append_event(
+            "session_state",
+            {
+                "current_language": self.current_language,
+                "last_lang": self.last_lang,
+                "vars": {k: v for k, v in self.vars.items()},
+                "active_df": self.active_df,
+                "debug": True,
+            },
+            turn=self._turn,
+        )
+        with open(self.state_path, "w") as f:
             json.dump(state_data, f, indent=2)
+        self.write_atif()
 
     def llm_context(self):
         info = get_system_info()

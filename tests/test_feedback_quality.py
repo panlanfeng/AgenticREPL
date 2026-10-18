@@ -106,10 +106,16 @@ class TestRunCommandFeedback:
     def test_structured_meta_surfaces_in_tool_message(self, monkeypatch):
         client = _FakeClient()
         monkeypatch.setattr(llm_module.llm, "client", client)
+        def _config(key):
+            if key == "max_llm_steps":
+                return 2
+            if key == "verify_results":
+                return False
+            return 12
         monkeypatch.setattr(
             llm_module,
             "config_get",
-            lambda key: 2 if key == "max_llm_steps" else 12,
+            _config,
         )
         state.reset_session()
 
@@ -149,6 +155,10 @@ class TestRunCommandFeedback:
         content = _build_run_command_feedback(False, "", {"aborted": True, "exit_code": 130})
         assert "Exit: 130" in content
         assert "flags=aborted" in content
+
+    def test_build_feedback_marks_uncaptured_tty_output(self):
+        content = _build_run_command_feedback(True, "", {"tty": True, "captured": False})
+        assert "output_not_captured" in content
 
     def test_build_feedback_splits_merged_stderr(self):
         """Shell executor returns out = stdout + stderr merged; rendering must

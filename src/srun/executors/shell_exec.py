@@ -197,7 +197,13 @@ class ShellExecutor:
         # Local: subprocess.run
         if _needs_tty(stripped):
             rc, timed_out = self._run_tty(stripped, timeout)
-            return rc == 0, "", "", rc, {"timed_out": timed_out}
+            # TTY commands write directly to the terminal; their text is not
+            # available to the contract checker. Mark that explicitly.
+            return rc == 0, "", "", rc, {
+                "timed_out": timed_out,
+                "tty": True,
+                "captured": False,
+            }
 
         try:
             out, err, rc, timed_out = self._run_captured(stripped, timeout)

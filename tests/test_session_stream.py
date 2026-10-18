@@ -455,11 +455,13 @@ class TestCompactionPersistence:
     """Test that compaction snapshots survive restarts and are read back correctly."""
 
     def setup_method(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE, SESSION_DIR
-        state.reset_session()
+        from srun.context import SessionState, FULL_HISTORY_FILE, EVENTS_FILE, SESSION_DIR
         # Clean the history file for a fresh test
         if os.path.isfile(FULL_HISTORY_FILE):
             os.remove(FULL_HISTORY_FILE)
+        if os.path.isfile(EVENTS_FILE):
+            os.remove(EVENTS_FILE)
+        state.reset_session()
 
     def test_write_and_load_compaction_snapshot(self):
         from srun.context import SessionState, FULL_HISTORY_FILE
@@ -485,8 +487,8 @@ class TestCompactionPersistence:
         new_state = SessionState()
         new_state._load_conversation_state()
         assert new_state._stable_summary == "User worked with CSV files: listed and counted 5 files."
-        # _conversation should be empty — fresh session
-        assert new_state._conversation == []
+        # The event log restores the retained conversation for exact replay.
+        assert new_state._conversation == state._conversation
 
     def test_load_ignores_other_entry_types(self):
         from srun.context import SessionState, FULL_HISTORY_FILE
@@ -508,13 +510,15 @@ class TestCompactionPersistence:
         new_state = SessionState()
         new_state._load_conversation_state()
         assert new_state._stable_summary == "User said hello, assistant greeted."
-        # _conversation starts fresh — only summary is restored
-        assert new_state._conversation == []
+        # The event log restores the retained conversation for exact replay.
+        assert new_state._conversation == state._conversation
 
     def test_no_file_loads_clean(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE
+        from srun.context import SessionState, FULL_HISTORY_FILE, EVENTS_FILE
         if os.path.isfile(FULL_HISTORY_FILE):
             os.remove(FULL_HISTORY_FILE)
+        if os.path.isfile(EVENTS_FILE):
+            os.remove(EVENTS_FILE)
         new_state = SessionState()
         new_state._load_conversation_state()
         assert new_state._stable_summary is None

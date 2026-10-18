@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import re
 import time
@@ -13,6 +14,15 @@ from .prompts import PROMPT
 from .tools import TOOL_DEFINITIONS, execute_tool
 from .mcp import mcp
 from .user_config import get as config_get
+from .result_validation import (
+    collect_artifacts,
+    combine_verifications,
+    fallback_contract,
+    format_contract,
+    normalize_contract,
+    validate_contract,
+    verify_result_with_llm,
+)
 
 
 def _extract_command_from_text(text):
@@ -147,6 +157,8 @@ def _build_run_command_feedback(ok, out, meta):
         flags.append("timed_out")
     if meta.get("aborted"):
         flags.append("aborted")
+    if meta.get("captured") is False:
+        flags.append("output_not_captured")
     flag_line = (" flags=" + ",".join(flags)) if flags else ""
     stdout_view = _split_merged_stderr(out or "", stderr)
     preview, truncated = truncate_tool_output(stdout_view, direction="tail")
@@ -172,10 +184,37 @@ class LLM:
         self._miss_tokens = 0
         self._last_output = ""  # captured output from last inline run_command
         self._agent_text = ""    # captured agent text for display ordering
+        self._result_contract = None  # expected result for the current turn
+        self._last_verification = None  # latest post-execution verification result
 
     def run(self, user_input, error=None, exec_callback=None, ask_user_callback=None, bg_callback=None):
         if not self.client:
             return "No LLM configured — set DEEPSEEK_API_KEY, OPENAI_API_KEY, or add api_key to ~/.srun/user_config.json", None, None
+
+        self._result_contract = None
+        self._last_verification = None
+        state.last_contract = None
+        state.last_verification = None
+        turn_start = time.time()
+        # Deterministic verification applies to agent turns that can execute
+        # commands. Repair and direct llm.run callers keep the original behavior.
+        verify_enabled = bool(config_get("verify_results")) and exec_callback is not None and not error
+        verify_with_llm = bool(config_get("verify_with_llm"))
+        max_verify_retries = max(0, int(config_get("max_verify_retries") or 0))
+        turn_number = state._turn + 1
+        state.append_event(
+            "turn_start",
+            {
+                "user_input": user_input,
+                "error": error,
+                "cwd": os.getcwd(),
+                "language": state.current_language,
+                "verify_enabled": verify_enabled,
+                "verify_with_llm": verify_with_llm,
+                "started_at_epoch": turn_start,
+            },
+            turn=turn_number,
+        )
 
         failure_text = f"{user_input}\nError: {error}" if error else user_input
 
@@ -218,6 +257,26 @@ class LLM:
         total_tokens = 0
         retries = 0
         nudges = 0  # bounded "empty final response" retries
+        verify_retries = 0
+        contract_nudges = 0
+        tool_event_seqs = {}
+
+        def _log_turn_end(summary_text, commands, error=None):
+            state.append_event(
+                "turn_end",
+                {
+                    "summary": summary_text,
+                    "verification": self._last_verification,
+                    "command_count": len(commands or []),
+                    "rounds": verify_retries + 1,
+                    "error": error,
+                },
+                turn=turn_number,
+            )
+        contract_tool = next(
+            (tool for tool in tools if tool["function"]["name"] == "set_result_contract"),
+            None,
+        )
         max_steps = int(config_get("max_llm_steps") or 12)  # hard cap on agent-loop steps
         steps = 0
         hit_step_cap = False
@@ -234,11 +293,38 @@ class LLM:
                           "stream": config.stream}
                 if config.top_p > 0:
                     kwargs["top_p"] = config.top_p
+                force_contract = (
+                    verify_enabled and self._result_contract is None
+                    and steps == 1 and contract_tool is not None
+                )
                 if tools:
-                    kwargs["tools"] = tools
-                    if config.tool_choice:
-                        kwargs["tool_choice"] = config.tool_choice
-                stream = self.client.chat.completions.create(**kwargs)
+                    if force_contract:
+                        # The first model step is intent recognition. Force the
+                        # contract call so every agent turn starts with a
+                        # machine-checkable acceptance target.
+                        kwargs["tools"] = [contract_tool]
+                        kwargs["tool_choice"] = {
+                            "type": "function",
+                            "function": {"name": "set_result_contract"},
+                        }
+                    else:
+                        kwargs["tools"] = tools
+                        if config.tool_choice:
+                            kwargs["tool_choice"] = config.tool_choice
+                try:
+                    stream = self.client.chat.completions.create(**kwargs)
+                except Exception as exc:
+                    # Some OpenAI-compatible providers do not support a forced
+                    # function choice. Fall back to normal tool selection.
+                    message = str(exc).lower()
+                    if force_contract and any(token in message for token in (
+                        "tool_choice", "tool choice", "function", "400",
+                    )):
+                        kwargs["tools"] = tools
+                        kwargs.pop("tool_choice", None)
+                        stream = self.client.chat.completions.create(**kwargs)
+                    else:
+                        raise
 
                 content_parts = []
                 reasoning_parts = []
@@ -327,14 +413,56 @@ class LLM:
                             messages.append({"role": "tool", "tool_call_id": tc.id,
                                              "content": f"Error: failed to parse tool call arguments as JSON: {tc.function.arguments[:200]}"})
                             continue
+                        if tc.function.name == "set_result_contract":
+                            self._result_contract = normalize_contract(args, user_input)
+                            state.last_contract = self._result_contract
+                            state.append_event(
+                                "contract",
+                                {"contract": self._result_contract, "tool_call_id": tc.id},
+                                turn=turn_number, round=verify_retries + 1,
+                            )
+                            check_count = len(self._result_contract.get("checks", []))
+                            print(f"\033[2m  [contract] {check_count} check(s)\033[0m", flush=True)
+                            content = ("Result contract recorded.\n"
+                                       + format_contract(self._result_contract))
+                            messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                            continue
+                        if (verify_enabled and self._result_contract is None
+                                and tc.function.name in ("run_command", "file_edit", "file_write")):
+                            state.append_event(
+                                "tool_blocked",
+                                {"tool": tc.function.name, "arguments": args,
+                                 "reason": "result contract missing"},
+                                turn=turn_number, round=verify_retries + 1,
+                            )
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": ("Error: result contract missing. Call "
+                                            "set_result_contract before executing commands or "
+                                            "modifying files. The request was not executed."),
+                            })
+                            continue
                         if tc.function.name == "run_command":
                             cmd = args.get("command", "")
                             lang = args.get("language", "shell")
+                            exec_ok = None
+                            exec_out = ""
+                            exec_meta = {}
+                            executed = False
                             if cmd:
                                 all_commands.append({"command": cmd, "language": lang,
-                                                     "output": "", "background": bool(args.get("background"))})
+                                                     "output": "", "background": bool(args.get("background")),
+                                                     "executed": False, "ok": None, "exit_code": None,
+                                                     "round": verify_retries + 1,
+                                                     "captured": not bool(args.get("background"))})
                             if cmd and args.get("background") and bg_callback:
                                 content = bg_callback("start", command=cmd, language=lang)
+                                exec_ok = True
+                                exec_meta = {"background": True, "captured": False}
+                                executed = True
+                                if all_commands:
+                                    all_commands[-1].update({"executed": True, "ok": True})
                                 print(f"\033[1;32m> {cmd} [background]\033[0m", flush=True)
                             elif exec_callback and cmd:
                                 result = exec_callback(cmd, lang)
@@ -343,8 +471,18 @@ class LLM:
                                 else:
                                     ok, out = result[0], result[1]
                                     meta = {}
+                                exec_ok = bool(ok)
+                                exec_out = out or ""
+                                exec_meta = meta
+                                executed = True
                                 if all_commands:
                                     all_commands[-1]["output"] = (out or "").strip()
+                                    all_commands[-1].update({
+                                        "executed": True,
+                                        "ok": bool(ok),
+                                        "exit_code": meta.get("exit_code", 0 if ok else 1),
+                                        "captured": meta.get("captured", True),
+                                    })
                                 # Print code + output inline (natural interleaved order)
                                 for line in cmd.split("\n"):
                                     print(f"\033[1;32m> {line}\033[0m", flush=True)
@@ -354,6 +492,31 @@ class LLM:
                                 content = _build_run_command_feedback(ok, out, meta)
                             else:
                                 content = f"queued: {cmd}"
+                                exec_meta = {"queued": True, "captured": False}
+                            if cmd:
+                                seq = state.append_event(
+                                    "tool_result",
+                                    {
+                                        "tool_call_id": tc.id,
+                                        "command": cmd,
+                                        "language": lang,
+                                        "round": verify_retries + 1,
+                                        "background": bool(args.get("background")),
+                                        "executed": executed,
+                                        "ok": exec_ok,
+                                        "exit_code": exec_meta.get("exit_code"),
+                                        "captured": exec_meta.get("captured", not bool(args.get("background"))),
+                                        "output": exec_out,
+                                        "output_chars": len(exec_out),
+                                        "output_sha256": hashlib.sha256(
+                                            exec_out.encode("utf-8", errors="replace")
+                                        ).hexdigest(),
+                                        "meta": exec_meta,
+                                    },
+                                    turn=turn_number, round=verify_retries + 1,
+                                )
+                                if seq:
+                                    tool_event_seqs.setdefault(verify_retries + 1, []).append(seq["seq"])
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                         elif tc.function.name in ("check_background", "stop_background"):
                             task_id = args.get("task_id", "")
@@ -363,6 +526,24 @@ class LLM:
                                 print(f"\033[2m  → {action} background task {task_id}\033[0m", flush=True)
                             else:
                                 content = f"{tc.function.name} is not available in this context"
+                            seq = state.append_event(
+                                "tool_result",
+                                {
+                                    "tool_call_id": tc.id,
+                                    "tool": tc.function.name,
+                                    "arguments": args,
+                                    "round": verify_retries + 1,
+                                    "executed": True,
+                                    "output": content,
+                                    "output_chars": len(content or ""),
+                                    "output_sha256": hashlib.sha256(
+                                        (content or "").encode("utf-8", errors="replace")
+                                    ).hexdigest(),
+                                },
+                                turn=turn_number, round=verify_retries + 1,
+                            )
+                            if seq:
+                                tool_event_seqs.setdefault(verify_retries + 1, []).append(seq["seq"])
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                         else:
                             if tc.function.name == "ask_user" and ask_user_callback:
@@ -402,6 +583,24 @@ class LLM:
                                 else:
                                     result = execute_tool(tc.function.name, args)
                                 content = _truncate_tool_result(tc.function.name, result)
+                            seq = state.append_event(
+                                "tool_result",
+                                {
+                                    "tool_call_id": tc.id,
+                                    "tool": tc.function.name,
+                                    "arguments": args,
+                                    "round": verify_retries + 1,
+                                    "executed": True,
+                                    "output": content,
+                                    "output_chars": len(content or ""),
+                                    "output_sha256": hashlib.sha256(
+                                        (content or "").encode("utf-8", errors="replace")
+                                    ).hexdigest(),
+                                },
+                                turn=turn_number, round=verify_retries + 1,
+                            )
+                            if seq:
+                                tool_event_seqs.setdefault(verify_retries + 1, []).append(seq["seq"])
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                     state.log_conversation(messages[prev_log_len:])
                     prev_log_len = len(messages)
@@ -413,6 +612,7 @@ class LLM:
                     # or a final text answer. Otherwise a model that explores
                     # first would bail with (None, None) and look like a failure.
                     if not exec_callback and all_commands:
+                        _log_turn_end(text if text else None, all_commands)
                         return text if text else None, all_commands, messages[conv_start:]
                     continue
 
@@ -434,7 +634,9 @@ class LLM:
                     extracted = _extract_command_from_text(summary)
                     if extracted:
                         lang = extracted.get("language") or state.current_language
-                        all_commands = [{"command": extracted["command"], "language": lang}]
+                        all_commands = [{"command": extracted["command"], "language": lang,
+                                         "executed": False, "ok": None, "exit_code": None,
+                                         "round": verify_retries + 1, "captured": False}]
                 # A reasoning-only terminal message (no text, no tool calls) after
                 # exploration is not a usable answer — nudge once so a turn never
                 # ends silently with (None, None).
@@ -444,42 +646,168 @@ class LLM:
                                      "content": "[system] Your previous response contained no content. "
                                                 "Provide your final answer or the command to run now."})
                     continue
+                if verify_enabled and self._result_contract is None and contract_nudges < 1:
+                    contract_nudges += 1
+                    messages.append({"role": "user",
+                                     "content": "[system] Missing result contract. Call "
+                                                "set_result_contract before the final answer. "
+                                                "Use checks: [] if no deterministic check applies."})
+                    continue
                 # Append final assistant text to messages so conversation is complete
                 if summary:
                     messages.append({"role": "assistant", "content": summary})
+
+                # Validate the recorded contract before ending the turn. Local
+                # code checks run first; the optional LLM verifier is a separate
+                # stateless call with a fixed system prompt, logs, and artifacts.
+                if verify_enabled:
+                    contract = self._result_contract or fallback_contract(user_input)
+                    current_round = verify_retries + 1
+                    artifacts = collect_artifacts(
+                        cwd=os.getcwd(), contract=contract,
+                        commands=all_commands, since=turn_start,
+                    )
+                    artifact_event = state.append_event(
+                        "artifact_snapshot",
+                        {
+                            "round": current_round,
+                            "cwd": os.getcwd(),
+                            "since_epoch": turn_start,
+                            "sha256": hashlib.sha256(
+                                artifacts.encode("utf-8", errors="replace")
+                            ).hexdigest(),
+                            "text": artifacts,
+                        },
+                        turn=turn_number, round=current_round,
+                    )
+                    evidence_refs = list(tool_event_seqs.get(current_round, []))
+                    if artifact_event:
+                        evidence_refs.append(artifact_event["seq"])
+                    try:
+                        code_verification = validate_contract(
+                            contract, all_commands, summary,
+                            current_round=current_round,
+                        )
+                    except Exception as exc:
+                        code_verification = {
+                            "satisfied": None,
+                            "reason": f"deterministic validation unavailable: {exc}",
+                            "retry_instruction": "",
+                            "checks": [],
+                            "unverifiable": True,
+                        }
+                    verification = code_verification
+                    if code_verification.get("satisfied") is not False and verify_with_llm:
+                        llm_verification = verify_result_with_llm(
+                            self.client, config.model, user_input, contract,
+                            all_commands, summary, artifacts,
+                        )
+                        verification = combine_verifications(code_verification, llm_verification)
+                    self._last_verification = verification
+                    state.last_verification = verification
+                    verdict = (
+                        "pass" if verification.get("satisfied") is True
+                        else "fail" if verification.get("satisfied") is False
+                        else "unknown"
+                    )
+                    state.append_event(
+                        "verification",
+                        {
+                            "round": current_round,
+                            "verdict": verdict,
+                            "satisfied": verification.get("satisfied"),
+                            "reason": verification.get("reason", ""),
+                            "retry_instruction": verification.get("retry_instruction", ""),
+                            "checks": verification.get("checks", []),
+                            "code": code_verification,
+                            "llm": verification.get("llm"),
+                            "contract": contract,
+                            "evidence_refs": evidence_refs,
+                            "artifact_ref": artifact_event["seq"] if artifact_event else None,
+                        },
+                        turn=turn_number, round=current_round,
+                    )
+                    if verification.get("satisfied") is False:
+                        reason = verification.get("reason") or "result verification failed"
+                        instruction = verification.get("retry_instruction") or ""
+                        if verify_retries < max_verify_retries and steps < max_steps:
+                            from_round = current_round
+                            verify_retries += 1
+                            state.append_event(
+                                "retry",
+                                {
+                                    "from_round": from_round,
+                                    "to_round": verify_retries + 1,
+                                    "reason": reason,
+                                    "instruction": instruction,
+                                },
+                                turn=turn_number, round=from_round,
+                            )
+                            print(f"\033[2m  [verify] {reason} — retrying\033[0m", flush=True)
+                            feedback = (
+                                "[result verification failed]\n"
+                                f"Reason: {reason}\n"
+                                f"Required retry: {instruction or 'Complete the missing part of the request.'}\n"
+                                "Inspect the existing outputs first. Do not repeat successful actions unless needed."
+                            )
+                            messages.append({"role": "user", "content": feedback})
+                            state.log_conversation(messages[prev_log_len:])
+                            prev_log_len = len(messages)
+                            nudges = 0
+                            continue
+                        note = f"[result verification failed] {reason}"
+                        if instruction:
+                            note += f" Next step: {instruction}"
+                        summary = f"{summary}\n\n{note}" if summary else note
+                        if messages and messages[-1].get("role") == "assistant":
+                            messages[-1]["content"] = summary
+                        state.append_event(
+                            "retry_exhausted",
+                            {"round": current_round, "reason": reason, "instruction": instruction},
+                            turn=turn_number, round=current_round,
+                        )
+
                 state.log_conversation(messages[prev_log_len:])
                 prev_log_len = len(messages)
                 self._maybe_compact()
+                _log_turn_end(summary, all_commands)
                 return summary, all_commands if all_commands else None, messages[conv_start:]
 
             except (json.JSONDecodeError, AttributeError, KeyError) as e:
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages[prev_log_len:])
                 prev_log_len = len(messages)
+                _log_turn_end(None, None, error=str(e))
                 return f"LLM response error: {e}", None, None
             except Exception as e:
                 err_msg = str(e).lower()
                 if any(kw in err_msg for kw in ("timeout", "connection", "rate limit", "server error", "503", "502", "429")):
                     retries += 1
                     if retries >= 5:
+                        _log_turn_end(None, None, error=str(e))
                         return f"LLM error: too many transient failures — {e}", None, None
                     time.sleep(1.5)
                     continue
                 if any(kw in err_msg for kw in ("401", "403", "authentication", "invalid api key", "invalid_request_error", "access denied")):
+                    _log_turn_end(None, None, error=str(e))
                     return ("Authentication failed — check your API key. Set DEEPSEEK_API_KEY, OPENAI_API_KEY,"
                             " or add api_key to ~/.srun/user_config.json. Type /configure for help."), None, None
                 state.last_dispatch_error = str(e)
                 state.log_conversation(messages[prev_log_len:])
                 prev_log_len = len(messages)
+                _log_turn_end(None, None, error=str(e))
                 return f"LLM error: {e}", None, None
 
         state.log_conversation(messages[prev_log_len:])
         prev_log_len = len(messages)
         if hit_step_cap:
-            return (f"Reached max steps ({max_steps}) for this turn; task too complex. "
-                    "Break it into smaller steps or continue with a follow-up prompt.",
-                    all_commands if all_commands else None, messages[conv_start:])
-        return f"Token budget ({MAX_TOKENS}) exceeded; task too complex.", None, None
+            message = (f"Reached max steps ({max_steps}) for this turn; task too complex. "
+                       "Break it into smaller steps or continue with a follow-up prompt.")
+            _log_turn_end(message, all_commands, error="max_steps")
+            return message, all_commands if all_commands else None, messages[conv_start:]
+        message = f"Token budget ({MAX_TOKENS}) exceeded; task too complex."
+        _log_turn_end(message, None, error="token_budget")
+        return message, None, None
 
     def _track_usage(self, usage):
         if usage:

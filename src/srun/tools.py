@@ -334,6 +334,61 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "set_result_contract",
+            "description": (
+                "Record the user's expected result before executing. Call this once at the "
+                "start of a natural-language task, before run_command, file_edit, file_write, "
+                "or the final answer. "
+                "Checks are validated by local code, so they must be deterministic. "
+                "Supported types: file_exists, file_not_exists, file_contains, file_equals, "
+                "line_count, output_contains, output_matches, output_equals, exit_code, "
+                "all_commands_ok, json_field, command_contains. Use checks: [] when the "
+                "request cannot be checked deterministically; do not invent semantic checks."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "One-sentence restatement of the user's goal"},
+                    "expected_result": {"type": "string", "description": "What the final result should contain or demonstrate"},
+                    "expected_format": {"type": "string", "description": "Requested output format, or 'not specified'"},
+                    "checks": {
+                        "type": "array",
+                        "description": "Machine-checkable acceptance checks",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string", "enum": [
+                                    "file_exists", "file_not_exists", "file_contains",
+                                    "file_equals", "line_count", "output_contains",
+                                    "output_matches", "output_equals", "exit_code",
+                                    "all_commands_ok", "json_field", "command_contains",
+                                ]},
+                                "path": {"type": "string", "description": "File path for file_* and line_count checks"},
+                                "text": {"type": "string", "description": "Required text for file_contains, file_equals, output_contains, output_equals, and command_contains"},
+                                "pattern": {"type": "string", "description": "Regex for output_matches"},
+                                "source": {"type": "string", "enum": ["all", "last", "summary", "file"], "description": "Evidence source for output_* and json_field"},
+                                "scope": {"type": "string", "enum": ["current", "all"], "description": "Use commands from the current verification round (default) or all rounds"},
+                                "field": {"type": "string", "description": "Dot path for json_field, e.g. 'items.0.count'"},
+                                "equals": {"type": "string", "description": "Expected value for line_count, exit_code, or json_field. For output_equals use text instead."},
+                                "contains": {"type": "string", "description": "Expected substring for json_field"},
+                                "exists": {"type": "boolean", "description": "Expected JSON field existence"},
+                                "count": {"type": "integer", "description": "Exact occurrence count"},
+                                "min": {"type": "integer", "description": "Minimum line count"},
+                                "max": {"type": "integer", "description": "Maximum line count"},
+                                "case_sensitive": {"type": "boolean", "description": "Whether text matching is case-sensitive (default true)"},
+                                "command_contains": {"type": "string", "description": "Apply exit_code to commands containing this text"},
+                            },
+                            "required": ["type"],
+                        },
+                    },
+                },
+                "required": ["goal", "checks"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "Execute a command in the target REPL environment (shell, python, or r). Output is returned raw — print results directly, do not wrap in JSON. After execution, check output and decide next step. For long-running shell commands (builds, servers, tests), set background=true and poll with check_background.",
             "parameters": {
@@ -606,6 +661,7 @@ TOOL_HANDLERS = {
     "check_background": lambda task_id="": f"check_background is only available in the agent loop (task {task_id})",
     "stop_background": lambda task_id="": f"stop_background is only available in the agent loop (task {task_id})",
     "ask_user": ask_user,
+    "set_result_contract": lambda **kwargs: "set_result_contract is only available in the agent loop",
     "grep_search": grep_search,
     "file_edit": file_edit,
     "file_write": file_write,

@@ -83,6 +83,90 @@ shell> add comments for the file test.py, run it and fix any bugs
 shell> analyze the following repo and explain the *.py files
 ```
 
+## Result verification
+
+For natural-language and agent turns, the first model response can call
+`set_result_contract` before executing. The contract contains a goal, expected result,
+expected format,
+and deterministic checks such as `file_exists`, `file_contains`, `output_contains`,
+`exit_code`, and `json_field`. After commands run, local code evaluates those checks
+against command outputs, exit codes, the final response, and files. If they pass, a
+stateless LLM verifier reads the execution log and an artifact snapshot (git diff/status
+plus file previews) to judge file changes and remaining intent. The verifier uses a
+fixed system prompt and receives no conversation history. If either layer fails, the
+concrete reason is fed back into the same agent loop for one bounded repair attempt.
+
+Code checks work only for explicit outcomes. Open-ended semantic quality and file
+changes are left to the stateless LLM verifier. If LLM verification is disabled or
+unavailable and the contract has no deterministic checks, the result is reported as
+unverified rather than guessed.
+
+Verification uses the current attempt by default, so a failed first attempt cannot
+make `all_commands_ok` fail forever. Use `scope: "all"` when a check intentionally
+needs earlier rounds. TTY-only commands print directly to the terminal and their text
+is not captured; redirect such output to a file or use a non-interactive mode if it
+must be checked.
+
+This check is controlled in `~/.srun/user_config.json`:
+
+```json
+{
+  "verify_results": true,
+  "verify_with_llm": true,
+  "max_verify_retries": 1
+}
+```
+
+Direct commands and quick fixes still execute without any LLM or verification
+overhead. Verification is skipped for command-repair calls because those already
+return executable output to the agent loop.
+
+## Event log and ATIF trajectory
+
+Each session has an append-only `events.jsonl` that is the single source of truth:
+
+```text
+~/.srun/sessions/<session_id>/events.jsonl
+```
+
+Every event has a monotonic `seq`, timestamp, type, payload, `prev_hash`, and
+`hash`. The chain is validated on load. A partially written final line from a crash
+is trimmed and recorded as a repair event; corruption before the tail raises an
+error. Session state is rebuilt by replaying this log with `srun --resume <id>`.
+
+The session also contains a derived ATIF v1.8 trajectory:
+
+```text
+~/.srun/sessions/<session_id>/trajectory.json
+```
+
+`trajectory.json` is not authoritative. It is rebuilt from `events.jsonl` and
+contains ATIF steps for user messages, agent responses, tool calls/observations,
+context compaction, and verification results. `events.jsonl` remains the source of
+truth if the trajectory file is missing or stale.
+
+Verification is logged with both the decision and the evidence:
+
+```json
+{
+  "type": "verification",
+  "payload": {
+    "round": 1,
+    "verdict": "pass",
+    "reason": "artifact contains hello world",
+    "retry_instruction": "",
+    "evidence_refs": [4, 6],
+    "artifact_ref": 6,
+    "checks": [],
+    "llm": {"satisfied": true, "source": "llm"}
+  }
+}
+```
+
+`evidence_refs` point to `tool_result` and `artifact_snapshot` events in the same
+log, so a verifier or human can inspect the actual commands, outputs, file hashes,
+git diff/status, and file previews that supported the decision.
+
 ## Error auto-repair and psuedo code being translated
 
 ```bash

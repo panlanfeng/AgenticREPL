@@ -11,6 +11,9 @@ DEFAULTS = {
     "exec_timeout_seconds": 120,  # kill commands that run longer than this (0 = no timeout)
     "max_llm_steps": 12,          # hard cap on LLM agent-loop steps per turn (tool calls)
     "llm_timeout_seconds": 300,   # total LLM request timeout; reasoning models can be slow
+    "verify_results": True,        # run deterministic contract checks and retry on failed checks
+    "verify_with_llm": True,       # after code checks, stateless LLM judge on logs + artifacts
+    "max_verify_retries": 1,       # extra agent-loop attempts after a failed verification
     "provider": "deepseek",  # provider preset (deepseek, openai, anthropic, ...)
     "api_key": "",
     "api_base": "",          # override provider's default base URL
@@ -29,6 +32,9 @@ TYPES = {
     "exec_timeout_seconds": int,
     "max_llm_steps": int,
     "llm_timeout_seconds": int,
+    "verify_results": bool,
+    "verify_with_llm": bool,
+    "max_verify_retries": int,
     "provider": str,
     "api_key": str,
     "api_base": str,
