@@ -14,6 +14,7 @@ DEFAULTS = {
     "verify_results": True,        # run deterministic contract checks and retry on failed checks
     "verify_with_llm": True,       # after code checks, stateless LLM judge on logs + artifacts
     "max_verify_retries": 1,       # extra agent-loop attempts after a failed verification
+    "atif_export_every_turns": 5,  # throttle full ATIF rebuilds; 1 = every turn
     "provider": "deepseek",  # provider preset (deepseek, openai, anthropic, ...)
     "api_key": "",
     "api_base": "",          # override provider's default base URL
@@ -35,6 +36,7 @@ TYPES = {
     "verify_results": bool,
     "verify_with_llm": bool,
     "max_verify_retries": int,
+    "atif_export_every_turns": int,
     "provider": str,
     "api_key": str,
     "api_base": str,

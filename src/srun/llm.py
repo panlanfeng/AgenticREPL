@@ -19,10 +19,12 @@ from .result_validation import (
     combine_verifications,
     fallback_contract,
     format_contract,
+    looks_actionable,
     normalize_contract,
     validate_contract,
     verify_result_with_llm,
 )
+from .policy import check_action
 
 
 def _extract_command_from_text(text):
@@ -198,7 +200,7 @@ class LLM:
         turn_start = time.time()
         # Deterministic verification applies to agent turns that can execute
         # commands. Repair and direct llm.run callers keep the original behavior.
-        verify_enabled = bool(config_get("verify_results")) and exec_callback is not None and not error
+        verify_enabled = bool(config_get("verify_results")) and exec_callback is not None
         verify_with_llm = bool(config_get("verify_with_llm"))
         max_verify_retries = max(0, int(config_get("max_verify_retries") or 0))
         turn_number = state._turn + 1
@@ -294,8 +296,9 @@ class LLM:
                 if config.top_p > 0:
                     kwargs["top_p"] = config.top_p
                 force_contract = (
-                    verify_enabled and self._result_contract is None
+                    verify_enabled and not error and self._result_contract is None
                     and steps == 1 and contract_tool is not None
+                    and looks_actionable(user_input)
                 )
                 if tools:
                     if force_contract:
@@ -387,6 +390,19 @@ class LLM:
                 self._track_usage(usage)
                 if usage and hasattr(usage, "prompt_cache_miss_tokens"):
                     total_tokens += getattr(usage, "prompt_cache_miss_tokens", 0) or 0
+                if usage:
+                    state.append_event(
+                        "llm_usage",
+                        {
+                            "model": config.model,
+                            "step": steps,
+                            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                            "cached_tokens": getattr(usage, "prompt_cache_hit_tokens", 0) or 0,
+                            "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", 0) or 0,
+                        },
+                        turn=turn_number,
+                    )
 
                 text = "".join(content_parts).strip()
                 tool_calls = []
@@ -427,7 +443,7 @@ class LLM:
                                        + format_contract(self._result_contract))
                             messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
                             continue
-                        if (verify_enabled and self._result_contract is None
+                        if (verify_enabled and not error and self._result_contract is None
                                 and tc.function.name in ("run_command", "file_edit", "file_write")):
                             state.append_event(
                                 "tool_blocked",
@@ -446,6 +462,46 @@ class LLM:
                         if tc.function.name == "run_command":
                             cmd = args.get("command", "")
                             lang = args.get("language", "shell")
+                            policy = check_action(
+                                "run_command", {"command": cmd, "language": lang},
+                                cwd=os.getcwd(), source="llm",
+                            )
+                            state.append_event(
+                                "policy_decision",
+                                {"action": "run_command", "decision": policy["decision"],
+                                 "reason": policy["reason"], "command": cmd,
+                                 "language": lang},
+                                turn=turn_number, round=verify_retries + 1,
+                            )
+                            approved = policy["decision"] == "allow"
+                            if policy["decision"] == "ask" and ask_user_callback:
+                                response = ask_user_callback(
+                                    f"Allow this action? {policy['reason']}",
+                                    f"Command: {cmd}",
+                                )
+                                approved = response.lower() in (
+                                    "yes", "y", "ok", "proceed", "allow", "approve"
+                                )
+                                state.append_event(
+                                    "approval_result",
+                                    {"action": "run_command", "approved": approved,
+                                     "response": response, "command": cmd},
+                                    turn=turn_number, round=verify_retries + 1,
+                                )
+                            if not approved:
+                                content = f"Blocked by policy: {policy['reason']}"
+                                messages.append({
+                                    "role": "tool", "tool_call_id": tc.id,
+                                    "content": content,
+                                })
+                                state.append_event(
+                                    "tool_blocked",
+                                    {"tool": "run_command", "command": cmd,
+                                     "reason": policy["reason"],
+                                     "decision": policy["decision"]},
+                                    turn=turn_number, round=verify_retries + 1,
+                                )
+                                continue
                             exec_ok = None
                             exec_out = ""
                             exec_meta = {}
@@ -578,6 +634,47 @@ class LLM:
                                                 print(f"\033[1;32m  {line}\033[0m")
                                             else:
                                                 print(f"\033[2m  {line}\033[0m")
+                                policy = check_action(
+                                    tc.function.name, args=args,
+                                    cwd=os.getcwd(), source="llm",
+                                )
+                                state.append_event(
+                                    "policy_decision",
+                                    {"action": tc.function.name,
+                                     "decision": policy["decision"],
+                                     "reason": policy["reason"],
+                                     "arguments": args},
+                                    turn=turn_number, round=verify_retries + 1,
+                                )
+                                approved = policy["decision"] == "allow"
+                                if policy["decision"] == "ask" and ask_user_callback:
+                                    response = ask_user_callback(
+                                        f"Allow this action? {policy['reason']}",
+                                        f"{tc.function.name}: {args}",
+                                    )
+                                    approved = response.lower() in (
+                                        "yes", "y", "ok", "proceed", "allow", "approve"
+                                    )
+                                    state.append_event(
+                                        "approval_result",
+                                        {"action": tc.function.name, "approved": approved,
+                                         "response": response},
+                                        turn=turn_number, round=verify_retries + 1,
+                                    )
+                                if not approved:
+                                    content = f"Blocked by policy: {policy['reason']}"
+                                    messages.append({
+                                        "role": "tool", "tool_call_id": tc.id,
+                                        "content": content,
+                                    })
+                                    state.append_event(
+                                        "tool_blocked",
+                                        {"tool": tc.function.name,
+                                         "reason": policy["reason"],
+                                         "decision": policy["decision"]},
+                                        turn=turn_number, round=verify_retries + 1,
+                                    )
+                                    continue
                                 if tc.function.name.startswith("mcp_"):
                                     result = mcp.call_tool(tc.function.name, args)
                                 else:
@@ -646,7 +743,8 @@ class LLM:
                                      "content": "[system] Your previous response contained no content. "
                                                 "Provide your final answer or the command to run now."})
                     continue
-                if verify_enabled and self._result_contract is None and contract_nudges < 1:
+                if (verify_enabled and not error and self._result_contract is None
+                        and contract_nudges < 1 and looks_actionable(user_input)):
                     contract_nudges += 1
                     messages.append({"role": "user",
                                      "content": "[system] Missing result contract. Call "
@@ -663,26 +761,35 @@ class LLM:
                 if verify_enabled:
                     contract = self._result_contract or fallback_contract(user_input)
                     current_round = verify_retries + 1
-                    artifacts = collect_artifacts(
-                        cwd=os.getcwd(), contract=contract,
-                        commands=all_commands, since=turn_start,
+                    contract_has_checks = bool(contract.get("checks"))
+                    needs_llm_verify = verify_with_llm
+                    needs_artifacts = (
+                        bool(tool_event_seqs.get(current_round)) or contract_has_checks
+                        or looks_actionable(user_input)
                     )
-                    artifact_event = state.append_event(
-                        "artifact_snapshot",
-                        {
-                            "round": current_round,
-                            "cwd": os.getcwd(),
-                            "since_epoch": turn_start,
-                            "sha256": hashlib.sha256(
-                                artifacts.encode("utf-8", errors="replace")
-                            ).hexdigest(),
-                            "text": artifacts,
-                        },
-                        turn=turn_number, round=current_round,
-                    )
+                    artifacts = ""
+                    artifact_event = None
                     evidence_refs = list(tool_event_seqs.get(current_round, []))
-                    if artifact_event:
-                        evidence_refs.append(artifact_event["seq"])
+                    if needs_llm_verify and needs_artifacts:
+                        artifacts = collect_artifacts(
+                            cwd=os.getcwd(), contract=contract,
+                            commands=all_commands, since=turn_start,
+                        )
+                        artifact_event = state.append_event(
+                            "artifact_snapshot",
+                            {
+                                "round": current_round,
+                                "cwd": os.getcwd(),
+                                "since_epoch": turn_start,
+                                "sha256": hashlib.sha256(
+                                    artifacts.encode("utf-8", errors="replace")
+                                ).hexdigest(),
+                                "text": artifacts,
+                            },
+                            turn=turn_number, round=current_round,
+                        )
+                        if artifact_event:
+                            evidence_refs.append(artifact_event["seq"])
                     try:
                         code_verification = validate_contract(
                             contract, all_commands, summary,
@@ -697,10 +804,10 @@ class LLM:
                             "unverifiable": True,
                         }
                     verification = code_verification
-                    if code_verification.get("satisfied") is not False and verify_with_llm:
+                    if needs_llm_verify:
                         llm_verification = verify_result_with_llm(
                             self.client, config.model, user_input, contract,
-                            all_commands, summary, artifacts,
+                            all_commands, summary, artifacts, error=error,
                         )
                         verification = combine_verifications(code_verification, llm_verification)
                     self._last_verification = verification
@@ -724,6 +831,8 @@ class LLM:
                             "contract": contract,
                             "evidence_refs": evidence_refs,
                             "artifact_ref": artifact_event["seq"] if artifact_event else None,
+                            "execution_error": error,
+                            "code_overridden": verification.get("code_overridden", False),
                         },
                         turn=turn_number, round=current_round,
                     )

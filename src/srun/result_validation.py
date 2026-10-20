@@ -27,9 +27,16 @@ An exit code of 0 is not sufficient by itself. Do not invent evidence. If requir
 evidence is missing or the artifact does not show the requested change, mark the
 result unsatisfied and give one concrete retry instruction.
 
+If an execution error is included, decide what the user intended:
+- "code": the user typed a command/code with a typo or invalid syntax; the error is relevant.
+- "text": the user wrote a question, greeting, or natural-language request; the shell
+  execution error is incidental and should be ignored.
+
 Return ONLY one JSON object:
 {
   "satisfied": true or false,
+  "intent": "code" or "text" or "unknown",
+  "error_relevant": true or false,
   "reason": "brief evidence-based explanation",
   "retry_instruction": "specific next action when unsatisfied; empty when satisfied"
 }"""
@@ -49,6 +56,27 @@ SUPPORTED_CHECKS = (
     "json_field",
     "command_contains",
 )
+
+ACTION_WORDS = re.compile(
+    r"\b(create|write|edit|modify|delete|remove|run|execute|test|install|save|"
+    r"download|upload|rename|move|copy|fix|build|deploy|commit|push|pull|open|"
+    r"read|find|list|show|print|count|sort|filter|group|analyze|convert|compress|"
+    r"extract|add|update|change|generate|make|clean|format|check|verify)\b",
+    re.IGNORECASE,
+)
+ACTION_PATHS = re.compile(
+    r"(?:^|\s)(?:\./|/|~/)[^\s]+|\b[\w.-]+\.(?:csv|tsv|json|jsonl|py|sh|r|"
+    r"md|txt|yaml|yml|toml|log|zip|tar|gz|xlsx?|pdf)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_actionable(user_input):
+    """Cheap heuristic for whether a turn needs a contract/verifier."""
+    text = (user_input or "").strip()
+    if not text:
+        return False
+    return bool(ACTION_WORDS.search(text) or ACTION_PATHS.search(text))
 
 
 def fallback_contract(user_input):
@@ -70,6 +98,7 @@ def normalize_contract(value, user_input):
     if not isinstance(checks, list):
         checks = []
     clean_checks = []
+    notes = []
     for check in checks:
         if not isinstance(check, dict):
             continue
@@ -77,13 +106,40 @@ def normalize_contract(value, user_input):
         if not isinstance(check_type, str) or not check_type.strip():
             continue
         clean = dict(check)
-        clean["type"] = check_type.strip()
+        clean["type"] = check_type.strip().lower()
+        if clean["type"] not in SUPPORTED_CHECKS:
+            notes.append(f"dropped unsupported check type: {clean['type']}")
+            continue
+        if clean["type"] in ("output_equals", "file_equals",
+                             "output_contains", "file_contains"):
+            if not clean.get("text") and clean.get("equals") is not None:
+                clean["text"] = clean.pop("equals")
+                notes.append(f"moved equals to text for {clean['type']}")
+        if clean["type"] == "output_equals" and not clean.get("text"):
+            notes.append("dropped output_equals without text")
+            continue
+        if clean["type"] == "output_matches" and not clean.get("pattern"):
+            notes.append("dropped output_matches without pattern")
+            continue
+        valid_sources = {"all", "last", "summary", "file"}
+        if clean["type"].startswith("output_") or clean["type"] == "json_field":
+            if clean.get("source") not in valid_sources:
+                clean["source"] = (
+                    "summary" if clean["type"] == "output_equals"
+                    else "last" if clean["type"] == "json_field"
+                    else "all"
+                )
+        if clean["type"] == "output_contains" and "case_sensitive" not in clean:
+            clean["case_sensitive"] = False
+        if clean.get("scope") not in (None, "current", "all"):
+            clean.pop("scope", None)
         clean_checks.append(clean)
     return {
         "goal": str(value.get("goal") or user_input or "").strip(),
         "expected_result": str(value.get("expected_result") or "").strip(),
         "expected_format": str(value.get("expected_format") or "not specified").strip(),
         "checks": clean_checks[:12],
+        "normalization_notes": notes,
     }
 
 
@@ -362,7 +418,7 @@ def _check_output_contains(check, context):
     needle = check.get("text")
     if not isinstance(needle, str) or not needle:
         return False, "output_contains check is missing text"
-    case_sensitive = check.get("case_sensitive", True)
+    case_sensitive = check.get("case_sensitive", False)
     ok = _contains(text, needle, case_sensitive)
     return ok, f"output {'contains' if ok else 'does not contain'} {needle!r}"
 
@@ -375,7 +431,7 @@ def _check_output_matches(check, context):
     if not isinstance(pattern, str) or not pattern:
         return False, "output_matches check is missing pattern"
     try:
-        ok = re.search(pattern, text) is not None
+        ok = re.search(pattern, text, re.MULTILINE) is not None
     except re.error as exc:
         return False, f"invalid regex: {exc}"
     return ok, f"output {'matches' if ok else 'does not match'} /{pattern}/"
@@ -561,12 +617,14 @@ def collect_artifacts(cwd=None, contract=None, commands=None, since=None,
 
     status_paths = []
     status_lines = []
+    is_git = False
     try:
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=cwd, capture_output=True, text=True, timeout=5,
         )
         if status.returncode == 0:
+            is_git = True
             for line in status.stdout.strip().splitlines():
                 raw = line[3:].strip() if len(line) > 3 else ""
                 if " -> " in raw:
@@ -579,7 +637,7 @@ def collect_artifacts(cwd=None, contract=None, commands=None, since=None,
         pass
 
     recent_paths = []
-    if since is not None:
+    if since is not None and not is_git:
         skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
         for root, dirs, files in os.walk(cwd):
             dirs[:] = [name for name in dirs if not name.startswith(".") and name not in skip_dirs]
@@ -657,11 +715,12 @@ def collect_artifacts(cwd=None, contract=None, commands=None, since=None,
 
 
 def verify_result_with_llm(client, model, user_input, contract, commands,
-                           summary, artifacts, max_tokens=900):
+                           summary, artifacts, error=None, max_tokens=900):
     """Stateless verifier call: fixed system prompt + self-contained evidence."""
     user_content = (
         f"User request:\n{user_input}\n\n"
         f"Acceptance contract:\n{format_contract(contract)}\n\n"
+        f"Execution error:\n{error or '(none)'}\n\n"
         f"Execution log:\n{format_execution_log(commands, summary)}\n\n"
         f"Artifacts:\n{artifacts}"
     )
@@ -700,8 +759,16 @@ def verify_result_with_llm(client, model, user_input, contract, commands,
             "source": "llm",
             "error": "missing satisfied field",
         }
+    intent = str(value.get("intent") or "unknown").strip().lower()
+    if intent not in ("code", "text", "unknown"):
+        intent = "unknown"
+    error_relevant = value.get("error_relevant")
+    if isinstance(error_relevant, str):
+        error_relevant = error_relevant.strip().lower() in ("true", "yes", "1")
     return {
         "satisfied": satisfied,
+        "intent": intent,
+        "error_relevant": bool(error_relevant) if error_relevant is not None else None,
         "reason": str(value.get("reason") or "").strip(),
         "retry_instruction": str(value.get("retry_instruction") or "").strip(),
         "source": "llm",
@@ -712,6 +779,16 @@ def combine_verifications(code_result, llm_result):
     """Combine deterministic checks with the stateless LLM judge."""
     code_satisfied = code_result.get("satisfied") if code_result else None
     llm_satisfied = llm_result.get("satisfied") if llm_result else None
+    if code_satisfied is False and llm_satisfied is True:
+        return {
+            "satisfied": True,
+            "reason": f"LLM verifier overrode failed code checks: {llm_result.get('reason', '')}".strip(),
+            "retry_instruction": "",
+            "checks": code_result.get("checks", []),
+            "llm": llm_result,
+            "code_overridden": True,
+            "unverifiable": False,
+        }
     if code_satisfied is False:
         return code_result
     if llm_satisfied is False:

@@ -70,6 +70,7 @@ from .executors.python_exec import PythonExecutor
 from .executors.shell_exec import ShellExecutor
 from .executors.r_exec import RExecutor
 from .user_config import get as config_get
+from .policy import check_action
 
 
 def _is_incomplete(code, language):
@@ -186,9 +187,11 @@ def main():
 
     if len(sys.argv) > 1:
         _run_file(sys.argv[1], py_exec, sh_exec, r_exec)
+        state.write_atif()
         return
 
     _run_repl(py_exec, sh_exec, r_exec)
+    state.write_atif()
 
 
 def _run_file(path, py_exec, sh_exec, r_exec):
@@ -236,6 +239,16 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
     """Try direct execution first. If it fails, dispatch to LLM agent loop."""
     lang = state.current_language
     executor = _executor_for(lang, py_exec, sh_exec, r_exec)
+    policy = check_action(
+        "run_command", {"command": user_input, "language": lang},
+        cwd=os.getcwd(), source="user",
+    )
+    if policy["decision"] == "deny":
+        return {
+            "success": False,
+            "output": f"\033[1;31mBLOCKED\033[0m — {policy['reason']}",
+            "llm_used": False, "language": lang,
+        }
 
     # Quick-fix: try known aliases/typos before direct execution
     if lang == "shell":
@@ -278,7 +291,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
         error_msg = ""
     summary, tool_calls, conv = llm.run(
         user_input,
-        error=error_msg,
+        error=error_msg or None,
         exec_callback=_exec_inline(py_exec, sh_exec, r_exec),
         ask_user_callback=_ask_user_inline(),
         bg_callback=_bg_inline(sh_exec),
@@ -627,6 +640,16 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
     last_summary = None
 
     for attempt in range(max_rounds):
+        policy = check_action(
+            "run_command", {"command": current_input, "language": language},
+            cwd=os.getcwd(), source="user",
+        )
+        if policy["decision"] == "deny":
+            return {
+                "success": False,
+                "output": f"BLOCKED: {policy['reason']}",
+                "llm_used": llm_used, "language": language,
+            }
         success, output, *rest = executor.execute(current_input)
         stderr = rest[0] if len(rest) > 0 else ""
         ok = success

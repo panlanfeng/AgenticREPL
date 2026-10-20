@@ -62,6 +62,21 @@ def test_event_log_repairs_partial_crash_tail(tmp_path):
     assert events[0]["seq"] == 1
 
 
+def test_two_eventlog_instances_keep_one_hash_chain(tmp_path):
+    path = tmp_path / "events.jsonl"
+    first = EventLog(str(path), session_id="s1")
+    second = EventLog(str(path), session_id="s1")
+    first.append("turn_start", {"user_input": "one"}, turn=1)
+    second.append("turn_end", {"summary": "two"}, turn=1)
+    first.append("turn_start", {"user_input": "three"}, turn=2)
+
+    events, truncated = EventLog(str(path), session_id="s1").read_events()
+    assert not truncated
+    assert [event["seq"] for event in events] == [1, 2, 3]
+    assert events[1]["prev_hash"] == events[0]["hash"]
+    assert events[2]["prev_hash"] == events[1]["hash"]
+
+
 def test_replay_rebuilds_session_state(tmp_path):
     log = EventLog(str(tmp_path / "events.jsonl"), session_id="s1")
     _seed_events(log)

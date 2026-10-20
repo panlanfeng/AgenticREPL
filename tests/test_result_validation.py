@@ -466,3 +466,155 @@ def test_llm_run_skips_validation_when_disabled(monkeypatch):
     assert summary == "plain answer"
     assert commands is None
     assert llm_module.llm._result_contract is None
+
+
+def test_normalize_contract_auto_fixes_common_field_errors():
+    contract = normalize_contract({
+        "goal": "answer 102",
+        "checks": [
+            {"type": "output_equals", "equals": "102"},
+            {"type": "unknown_type"},
+        ],
+    }, "answer 102")
+    assert contract["checks"] == [{
+        "type": "output_equals", "text": "102", "source": "summary",
+    }]
+    assert contract["normalization_notes"]
+
+
+def test_output_contains_is_case_insensitive_by_default():
+    commands = [_command("shape", "Shape: (4, 2)")]
+    contract = {
+        "goal": "show shape",
+        "checks": [{"type": "output_contains", "text": "shape", "source": "last"}],
+    }
+    assert validate_contract(contract, commands, None)["satisfied"] is True
+
+
+def test_output_matches_multiline_output():
+    commands = [_command("count", "paths\n0\n")]
+    contract = {
+        "goal": "count",
+        "checks": [{"type": "output_matches", "pattern": r"^\d+$", "source": "last"}],
+    }
+    assert validate_contract(contract, commands, None)["satisfied"] is True
+
+
+def test_llm_verifier_can_override_failed_code_check(monkeypatch):
+    state.reset_session()
+    contract_args = {
+        "goal": "print hello",
+        "checks": [{"type": "output_contains", "text": "hello", "source": "last"}],
+    }
+    client = _SequencedClient([
+        iter([_Chunk(_Delta(tool_calls=[
+            _tool_call(0, "set_result_contract", contract_args),
+            _tool_call(1, "run_command", {"command": "printf wrong", "language": "shell"}),
+        ]))]),
+        iter([_Chunk(_Delta(content="done"))]),
+    ])
+    monkeypatch.setattr(llm_module.llm, "client", client)
+    monkeypatch.setattr(llm_module, "collect_artifacts", lambda **kwargs: "artifact snapshot")
+    monkeypatch.setattr(llm_module, "verify_result_with_llm", lambda *args, **kwargs: {
+        "satisfied": True, "intent": "code", "error_relevant": True,
+        "reason": "contract selected the wrong evidence source; output is correct",
+        "retry_instruction": "", "source": "llm",
+    })
+    monkeypatch.setattr(llm_module, "config_get", lambda key: {
+        "max_llm_steps": 8, "verify_results": True,
+        "verify_with_llm": True, "max_verify_retries": 1,
+    }.get(key, 12))
+
+    summary, _, _ = llm_module.llm.run(
+        "print hello", exec_callback=lambda *_: (True, "wrong\n")
+    )
+    assert summary == "done"
+    assert client.calls == 2
+    assert llm_module.llm._last_verification["satisfied"] is True
+    assert llm_module.llm._last_verification["code_overridden"] is True
+
+
+def test_simple_chat_skips_contract_and_artifact_scan_but_still_verifies(monkeypatch):
+    state.reset_session()
+    client = _SequencedClient([iter([_Chunk(_Delta(content="hi"))])])
+    monkeypatch.setattr(llm_module.llm, "client", client)
+    monkeypatch.setattr(llm_module, "collect_artifacts", lambda **kwargs: pytest.fail("artifacts scanned"))
+    captured = {}
+
+    def _verify(*args, **kwargs):
+        captured["artifacts"] = args[-1]
+        return {"satisfied": True, "intent": "text", "error_relevant": False,
+                "reason": "greeting answered", "retry_instruction": "", "source": "llm"}
+
+    monkeypatch.setattr(llm_module, "verify_result_with_llm", _verify)
+    monkeypatch.setattr(llm_module, "config_get", lambda key: {
+        "max_llm_steps": 8, "verify_results": True,
+        "verify_with_llm": True, "max_verify_retries": 1,
+    }.get(key, 12))
+
+    summary, commands, _ = llm_module.llm.run("hi", exec_callback=lambda *_: (True, "ok"))
+    assert summary == "hi"
+    assert commands is None
+    assert llm_module.llm._result_contract is None
+    assert captured["artifacts"] == ""
+    assert llm_module.llm._last_verification["satisfied"] is True
+
+
+def test_llm_run_verifies_without_contract_on_error(monkeypatch):
+    state.reset_session()
+    client = _SequencedClient([iter([_Chunk(_Delta(content="Hello! How can I help?"))])])
+    monkeypatch.setattr(llm_module.llm, "client", client)
+    monkeypatch.setattr(llm_module, "collect_artifacts", lambda **kwargs: pytest.fail("artifacts scanned"))
+    captured = {}
+
+    def _verify(*args, **kwargs):
+        captured["contract"] = args[3]
+        captured["error"] = kwargs.get("error")
+        return {"satisfied": True, "intent": "text", "error_relevant": False,
+                "reason": "answered the greeting", "retry_instruction": "",
+                "source": "llm"}
+
+    monkeypatch.setattr(llm_module, "verify_result_with_llm", _verify)
+    monkeypatch.setattr(llm_module, "config_get", lambda key: {
+        "max_llm_steps": 8,
+        "verify_results": True,
+        "verify_with_llm": True,
+        "max_verify_retries": 1,
+    }.get(key, 12))
+
+    summary, commands, _ = llm_module.llm.run(
+        "hi", error="command not found: hi", exec_callback=lambda *_: (True, "ok")
+    )
+    assert summary == "Hello! How can I help?"
+    assert commands is None
+    assert captured["contract"]["checks"] == []
+    assert captured["error"] == "command not found: hi"
+    assert llm_module.llm._last_verification["satisfied"] is True
+    assert llm_module.llm._last_verification["llm"]["intent"] == "text"
+    assert llm_module.llm._last_verification["llm"]["error_relevant"] is False
+
+
+def test_run_input_passes_execution_error_to_the_normal_loop(monkeypatch):
+    from srun import repl as repl_module
+
+    state.reset_session()
+    state.current_language = "shell"
+    captured = {}
+
+    class _FailingExecutor:
+        def execute(self, code):
+            return False, "command not found: hi", "", 127, {}
+
+    def _fake_run(user_input, error=None, **kwargs):
+        captured["error"] = error
+        return "Hello! How can I help?", None, None
+
+    monkeypatch.setattr(repl_module.llm, "client", object())
+    monkeypatch.setattr(repl_module.llm, "run", _fake_run)
+
+    result = repl_module._run_input(
+        "hi", _FailingExecutor(), _FailingExecutor(), _FailingExecutor()
+    )
+    assert captured["error"] == "command not found: hi"
+    assert result["language"] == "text"
+    assert result["summary"] == "Hello! How can I help?"

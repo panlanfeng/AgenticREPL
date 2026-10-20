@@ -113,9 +113,25 @@ This check is controlled in `~/.srun/user_config.json`:
 {
   "verify_results": true,
   "verify_with_llm": true,
-  "max_verify_retries": 1
+  "max_verify_retries": 1,
+  "atif_export_every_turns": 5
 }
 ```
+
+When a user input fails before the agent loop, the normal final verifier also
+receives the execution error. It decides whether the user intended a code/command
+typo or plain text. A text input's shell error is treated as incidental; a code typo
+keeps the error for repair. This decision is part of the verification event.
+
+All actions pass through a pre-execution policy gate. Catastrophic shell patterns
+are denied; high-risk model actions such as `sudo`, package installs, destructive
+deletes, and external MCP tools require approval. Direct user input is denied only
+for catastrophic patterns.
+
+Deterministic checks are evidence, not an unquestionable verdict. The stateless LLM
+verifier can override a failed model-generated check when the check selected the
+wrong evidence source or format; the verification event records
+`code_overridden: true`.
 
 Direct commands and quick fixes still execute without any LLM or verification
 overhead. Verification is skipped for command-repair calls because those already

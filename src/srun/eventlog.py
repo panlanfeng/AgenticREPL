@@ -9,7 +9,13 @@ import hashlib
 import json
 import os
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
 
 
 class EventLogCorruption(RuntimeError):
@@ -26,9 +32,12 @@ def _event_hash(event):
 
 
 class EventLog:
-    def __init__(self, path, session_id="", repair_truncated_tail=True):
+    def __init__(self, path, session_id="", repair_truncated_tail=True, fsync=False):
         self.path = path
         self.session_id = session_id or os.path.basename(os.path.dirname(path))
+        self.lock_path = path + ".lock"
+        self.fsync = fsync
+        self.last_error = None
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.events, self.truncated = self.read_events()
         self._seq = self.events[-1]["seq"] if self.events else 0
@@ -37,7 +46,45 @@ class EventLog:
             self._rewrite_valid_prefix()
             self.append("log_repaired", {"dropped_partial_tail": True})
 
+    @contextmanager
+    def _file_lock(self, exclusive=True):
+        os.makedirs(os.path.dirname(self.lock_path) or ".", exist_ok=True)
+        handle = open(self.lock_path, "a+")
+        try:
+            if fcntl:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            yield
+        finally:
+            if fcntl:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
+    def _last_event_on_disk(self):
+        """Read the last valid event without loading the whole log."""
+        if not os.path.isfile(self.path):
+            return None
+        with open(self.path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            if size == 0:
+                return None
+            chunk = min(size, 64 * 1024)
+            handle.seek(size - chunk)
+            lines = handle.read().splitlines()
+        for line in reversed(lines):
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(event, dict) and event.get("seq") and event.get("hash"):
+                return event
+        return None
+
     def _rewrite_valid_prefix(self):
+        with self._file_lock(exclusive=True):
+            self._rewrite_valid_prefix_locked()
+
+    def _rewrite_valid_prefix_locked(self):
         if not self.events:
             try:
                 os.remove(self.path)
@@ -59,8 +106,9 @@ class EventLog:
         a crash tail and returned as truncated=True; corruption elsewhere raises."""
         if not os.path.isfile(self.path):
             return [], False
-        with open(self.path, "r", encoding="utf-8") as handle:
-            lines = [line for line in handle if line.strip()]
+        with self._file_lock(exclusive=False):
+            with open(self.path, "r", encoding="utf-8") as handle:
+                lines = [line for line in handle if line.strip()]
         events = []
         for index, line in enumerate(lines):
             try:
@@ -80,27 +128,36 @@ class EventLog:
         return events, False
 
     def append(self, event_type, payload=None, turn=None, round=None):
-        seq = self._seq + 1
-        event = {
-            "seq": seq,
-            "event_id": uuid.uuid4().hex,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "session_id": self.session_id,
-            "type": event_type,
-            "turn": turn,
-            "round": round,
-            "payload": payload or {},
-            "prev_hash": self._last_hash,
-        }
-        event["hash"] = _event_hash(event)
-        with open(self.path, "a", encoding="utf-8") as handle:
-            handle.write(_canonical(event) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        self.events.append(event)
-        self._seq = seq
-        self._last_hash = event["hash"]
-        return event
+        with self._file_lock(exclusive=True):
+            last = self._last_event_on_disk()
+            self._seq = last["seq"] if last else 0
+            self._last_hash = last["hash"] if last else ""
+            seq = self._seq + 1
+            event = {
+                "seq": seq,
+                "event_id": uuid.uuid4().hex,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "session_id": self.session_id,
+                "type": event_type,
+                "turn": turn,
+                "round": round,
+                "payload": payload or {},
+                "prev_hash": self._last_hash,
+            }
+            event["hash"] = _event_hash(event)
+            with open(self.path, "a", encoding="utf-8") as handle:
+                handle.write(_canonical(event) + "\n")
+                handle.flush()
+                durable = self.fsync or event_type in (
+                    "verification", "turn_end", "turn_result", "log_repaired",
+                    "session_state", "contract",
+                )
+                if durable:
+                    os.fsync(handle.fileno())
+            self.events.append(event)
+            self._seq = seq
+            self._last_hash = event["hash"]
+            return event
 
     @property
     def last_seq(self):
@@ -111,10 +168,12 @@ class EventLog:
         return self._last_hash
 
     def replay(self):
-        return replay_events(self.events)
+        events, _ = self.read_events()
+        return replay_events(events)
 
     def export_atif(self):
-        return build_atif(self.events, self.session_id, self.path)
+        events, _ = self.read_events()
+        return build_atif(events, self.session_id, self.path)
 
     def write_atif(self, path):
         trajectory = self.export_atif()
@@ -334,6 +393,24 @@ def build_atif(events, session_id, event_log_path):
                     "reason": payload.get("reason"),
                     "retry_instruction": payload.get("retry_instruction"),
                     "evidence_refs": payload.get("evidence_refs", []),
+                    "execution_error": payload.get("execution_error"),
+                },
+            })
+        elif event_type == "error_intent":
+            add_step({
+                "step_id": 0,
+                "timestamp": timestamp,
+                "source": "system",
+                "message": "execution intent verification",
+                "observation": {
+                    "results": [{
+                        "content": json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    }]
+                },
+                "extra": {
+                    "event_type": "error_intent",
+                    "intent": payload.get("intent"),
+                    "reason": payload.get("reason"),
                 },
             })
         elif event_type == "log_repaired" and payload.get("dropped_partial_tail"):

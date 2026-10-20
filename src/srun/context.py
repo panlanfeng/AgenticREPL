@@ -190,6 +190,9 @@ class SessionState:
         self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
         self.last_contract = None
         self.last_verification = None
+        self.event_log_degraded = False
+        self._event_warning_shown = False
+        self._atif_last_turn = -1
 
     def reset_session(self):
         self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
@@ -206,6 +209,9 @@ class SessionState:
         self._llm_last_known_language = self._current_language
         self.last_contract = None
         self.last_verification = None
+        self.event_log_degraded = False
+        self._event_warning_shown = False
+        self._atif_last_turn = -1
 
     def resume_session(self, session_id):
         """Resume a previous session by ID. Loads its history and redirects
@@ -224,6 +230,9 @@ class SessionState:
         self.event_log = EventLog(self.events_path, session_id=session_id)
         self.last_contract = None
         self.last_verification = None
+        self.event_log_degraded = False
+        self._event_warning_shown = False
+        self._atif_last_turn = -1
         self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(self.outputs_dir, exist_ok=True)
         self._load_conversation_state()
@@ -480,7 +489,11 @@ class SessionState:
         try:
             return self.event_log.append(event_type, payload, turn=turn, round=round)
         except Exception as exc:
+            self.event_log_degraded = True
             self.last_dispatch_error = f"event log write failed: {exc}"
+            if not self._event_warning_shown:
+                self._event_warning_shown = True
+                print(f"\033[1;31mWARNING: event log write failed; audit/replay may be incomplete: {exc}\033[0m")
             return None
 
     def write_atif(self):
@@ -488,8 +501,22 @@ class SessionState:
         try:
             return self.event_log.write_atif(self.trajectory_path)
         except Exception as exc:
+            self.event_log_degraded = True
             self.last_dispatch_error = f"ATIF export failed: {exc}"
+            if not self._event_warning_shown:
+                self._event_warning_shown = True
+                print(f"\033[1;31mWARNING: ATIF export failed; events.jsonl is still authoritative: {exc}\033[0m")
             return None
+
+    def maybe_write_atif(self, force=False):
+        """Throttle the O(history) ATIF rebuild while keeping events authoritative."""
+        from .user_config import get as config_get
+        interval = int(config_get("atif_export_every_turns") or 5)
+        if not force and interval > 1 and self._turn - self._atif_last_turn < interval:
+            return None
+        result = self.write_atif()
+        self._atif_last_turn = self._turn
+        return result
 
     def log_entry(self, **kwargs):
         self._turn += 1
@@ -499,7 +526,7 @@ class SessionState:
             self.session_log = self.session_log[-200:]
         self.append_event("turn_result", {"entry": entry}, turn=self._turn)
         self._write_history(entry)
-        self.write_atif()
+        self.maybe_write_atif()
 
     def _write_history(self, entry):
         """Write a structured history entry to full_history.jsonl.
@@ -696,7 +723,7 @@ class SessionState:
         )
         with open(self.state_path, "w") as f:
             json.dump(state_data, f, indent=2)
-        self.write_atif()
+        self.maybe_write_atif()
 
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
@@ -728,7 +755,7 @@ class SessionState:
         )
         with open(self.state_path, "w") as f:
             json.dump(state_data, f, indent=2)
-        self.write_atif()
+        self.maybe_write_atif()
 
     def llm_context(self):
         info = get_system_info()
