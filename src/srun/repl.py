@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import time
 import atexit
@@ -241,7 +242,7 @@ def _run_input(user_input, py_exec, sh_exec, r_exec):
     executor = _executor_for(lang, py_exec, sh_exec, r_exec)
     policy = check_action(
         "run_command", {"command": user_input, "language": lang},
-        cwd=os.getcwd(), source="user",
+        cwd=os.getcwd(), source="user", grants=state.permission_grants,
     )
     if policy["decision"] == "deny":
         return {
@@ -434,11 +435,16 @@ def _run_repl(py_exec, sh_exec, r_exec):
                 for d in session_dirs:
                     sid = os.path.basename(d)
                     marker = " ← current" if d == state.session_dir else ""
-                    history = os.path.join(d, "full_history.jsonl")
+                    history = os.path.join(d, "events.jsonl")
                     turns = 0
                     if os.path.isfile(history):
                         with open(history) as f:
-                            turns = sum(1 for l in f if l.strip())
+                            for line in f:
+                                try:
+                                    if json.loads(line).get("type") == "turn_result":
+                                        turns += 1
+                                except (json.JSONDecodeError, AttributeError):
+                                    continue
                     print(f"  \033[2m{sid}\033[0m ({turns} turns){marker}")
             else:
                 print("\033[2m  no sessions found\033[0m")
@@ -642,7 +648,7 @@ def _retry_loop(initial_input, executor, language, max_rounds=None, initial_llm=
     for attempt in range(max_rounds):
         policy = check_action(
             "run_command", {"command": current_input, "language": language},
-            cwd=os.getcwd(), source="user",
+            cwd=os.getcwd(), source="user", grants=state.permission_grants,
         )
         if policy["decision"] == "deny":
             return {

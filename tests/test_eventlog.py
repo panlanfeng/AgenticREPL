@@ -123,6 +123,18 @@ def test_verification_event_is_auditable(tmp_path):
     assert verification["prev_hash"]
 
 
+def test_permission_grants_replay_and_revoke(tmp_path):
+    log = EventLog(str(tmp_path / "events.jsonl"), session_id="s1")
+    log.append("permission_grant", {"grant": {
+        "grant_id": "g1", "action": "run_command", "contains": "sudo",
+    }}, turn=1)
+    replayed = log.replay()
+    assert replayed["permission_grants"][0]["grant_id"] == "g1"
+    log.append("permission_revoke", {"grant_id": "g1"}, turn=2)
+    replayed = log.replay()
+    assert replayed["permission_grants"] == []
+
+
 def test_session_state_replays_event_log_and_writes_atif(tmp_path):
     log = EventLog(str(tmp_path / "events.jsonl"), session_id="s1")
     _seed_events(log)

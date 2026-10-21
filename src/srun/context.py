@@ -1,10 +1,10 @@
 import os
-import json
 import time
 import uuid
 import platform
 import shutil
 import subprocess
+from datetime import datetime, timedelta, timezone
 
 from .eventlog import EventLog
 
@@ -24,9 +24,6 @@ def _session_dir():
 
 SESSION_DIR = _session_dir()
 SESSION_ID = os.path.basename(SESSION_DIR)
-STATE_FILE = os.path.join(SESSION_DIR, "state.json")
-CONVERSATIONS_DIR = os.path.join(SESSION_DIR, "conversations")  # deprecated — use full_history.jsonl
-FULL_HISTORY_FILE = os.path.join(SESSION_DIR, "full_history.jsonl")
 OUTPUTS_DIR = os.path.join(SESSION_DIR, "outputs")
 EVENTS_FILE = os.path.join(SESSION_DIR, "events.jsonl")
 ATIF_FILE = os.path.join(SESSION_DIR, "trajectory.json")
@@ -182,9 +179,7 @@ class SessionState:
         os.makedirs(SESSION_DIR, exist_ok=True)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
         self.session_dir = SESSION_DIR
-        self.full_history_path = FULL_HISTORY_FILE
         self.outputs_dir = OUTPUTS_DIR
-        self.state_path = STATE_FILE
         self.events_path = EVENTS_FILE
         self.trajectory_path = ATIF_FILE
         self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
@@ -193,6 +188,7 @@ class SessionState:
         self.event_log_degraded = False
         self._event_warning_shown = False
         self._atif_last_turn = -1
+        self.permission_grants = []
 
     def reset_session(self):
         self.event_log = EventLog(self.events_path, session_id=os.path.basename(self.session_dir))
@@ -212,20 +208,19 @@ class SessionState:
         self.event_log_degraded = False
         self._event_warning_shown = False
         self._atif_last_turn = -1
+        self.permission_grants = []
 
     def resume_session(self, session_id):
         """Resume a previous session by ID. Loads its history and redirects
         all future writes (history, outputs) to that session's directory."""
         target_dir = os.path.join(BASE_DIR, "sessions", session_id)
-        target_history = os.path.join(target_dir, "full_history.jsonl")
-        if not os.path.isfile(target_history):
+        target_events = os.path.join(target_dir, "events.jsonl")
+        if not os.path.isfile(target_events):
             return False
         os.environ["SRUN_SESSION_ID"] = session_id
         self.session_dir = target_dir
-        self.full_history_path = target_history
         self.outputs_dir = os.path.join(target_dir, "outputs")
-        self.state_path = os.path.join(target_dir, "state.json")
-        self.events_path = os.path.join(target_dir, "events.jsonl")
+        self.events_path = target_events
         self.trajectory_path = os.path.join(target_dir, "trajectory.json")
         self.event_log = EventLog(self.events_path, session_id=session_id)
         self.last_contract = None
@@ -233,6 +228,7 @@ class SessionState:
         self.event_log_degraded = False
         self._event_warning_shown = False
         self._atif_last_turn = -1
+        self.permission_grants = []
         self._memory_file = os.path.join(BASE_DIR, "MEMORY.md")
         os.makedirs(self.outputs_dir, exist_ok=True)
         self._load_conversation_state()
@@ -391,78 +387,17 @@ class SessionState:
         return True
 
     def _write_compaction_snapshot(self):
-        """Write the current compaction state (summary + conversation) to history file.
-        Appended so the file is a chronological log; on load we read the last snapshot."""
-        import datetime as _datetime
-        record = {
-            "type": "compaction_snapshot",
-            "timestamp": _datetime.datetime.now().isoformat(),
-            "summary": self._stable_summary,
-            "conversation": self._conversation,
-        }
+        """Record the current compaction projection as an event."""
         self.append_event(
             "compaction",
             {"summary": self._stable_summary, "conversation": self._conversation},
             turn=self._turn + 1,
         )
-        os.makedirs(self.session_dir, exist_ok=True)
-        with open(self.full_history_path, "a") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _load_conversation_state(self):
-        """Restore _stable_summary + _conversation + current_language from session files.
-        llm_conversation entries store deltas (only new messages per turn);
-        compaction_snapshot resets the conversation and sets the summary.
-        state.json stores current_language for resume functionality."""
-        # The append-only event log is authoritative. Legacy full_history.jsonl
-        # remains a derived compatibility view for older sessions.
+        """Restore all session state by replaying the append-only event log."""
         if os.path.isfile(self.events_path):
             self._replay_event_log()
-            return
-        # Restore language from state.json
-        if os.path.isfile(self.state_path):
-            try:
-                with open(self.state_path, "r") as f:
-                    state_data = json.loads(f.read())
-                if state_data.get("current_language"):
-                    self._current_language = state_data["current_language"]
-                    self._llm_last_known_language = self._current_language
-                if state_data.get("last_lang"):
-                    self.last_lang = state_data["last_lang"]
-                if state_data.get("vars"):
-                    self.vars = state_data["vars"]
-                if state_data.get("active_df"):
-                    self.active_df = state_data["active_df"]
-            except Exception:
-                pass
-        # Restore conversation from full_history.jsonl
-        if not os.path.isfile(self.full_history_path):
-            return
-        best_summary = None
-        conversation = []
-        try:
-            with open(self.full_history_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if entry.get("type") == "compaction_snapshot":
-                        best_summary = entry.get("summary")
-                        conversation = []  # reset — only keep post-compaction turns
-                    elif entry.get("type") == "llm_conversation":
-                        conversation.extend(entry.get("messages", []))
-            if best_summary is not None:
-                self._stable_summary = best_summary
-            if conversation:
-                self._conversation = conversation
-                self._context_injected = True  # prevent redundant session startup injection
-                self._last_known_cwd = os.getcwd()  # prevent stale cwd from triggering system_reminder
-        except Exception:
-            pass
 
     def _replay_event_log(self):
         """Rebuild in-memory session state from events.jsonl after a crash."""
@@ -477,6 +412,7 @@ class SessionState:
         self.active_df = replayed.get("active_df")
         self.last_contract = replayed.get("contract")
         self.last_verification = replayed.get("last_verification")
+        self.permission_grants = list(replayed.get("permission_grants") or [])
         self._cached_messages = None
         self._cached_conv_len = 0
         self._cached_summary = None
@@ -487,7 +423,18 @@ class SessionState:
     def append_event(self, event_type, payload=None, turn=None, round=None):
         """Append one authoritative event. Failures are surfaced, not hidden."""
         try:
-            return self.event_log.append(event_type, payload, turn=turn, round=round)
+            event = self.event_log.append(event_type, payload, turn=turn, round=round)
+            if event_type == "permission_grant" and payload and payload.get("grant"):
+                grant = payload["grant"]
+                if grant not in self.permission_grants:
+                    self.permission_grants.append(grant)
+            elif event_type == "permission_revoke" and payload:
+                grant_id = payload.get("grant_id")
+                self.permission_grants = [
+                    grant for grant in self.permission_grants
+                    if grant.get("grant_id") != grant_id
+                ]
+            return event
         except Exception as exc:
             self.event_log_degraded = True
             self.last_dispatch_error = f"event log write failed: {exc}"
@@ -495,6 +442,29 @@ class SessionState:
                 self._event_warning_shown = True
                 print(f"\033[1;31mWARNING: event log write failed; audit/replay may be incomplete: {exc}\033[0m")
             return None
+
+    def grant_permission(self, action, contains=None, path_prefix=None,
+                         ttl_seconds=None, reason="user approved"):
+        """Append a durable permission grant event and update the projection."""
+        grant = {
+            "grant_id": uuid.uuid4().hex,
+            "action": action,
+            "reason": reason,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if contains:
+            grant["contains"] = contains
+        if path_prefix:
+            grant["path_prefix"] = path_prefix
+        if ttl_seconds:
+            grant["expires_at"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=int(ttl_seconds))
+            ).isoformat()
+        self.append_event("permission_grant", {"grant": grant}, turn=self._turn)
+        return grant
+
+    def revoke_permission(self, grant_id):
+        self.append_event("permission_revoke", {"grant_id": grant_id}, turn=self._turn)
 
     def write_atif(self):
         """Atomically rebuild the derived ATIF trajectory from events.jsonl."""
@@ -525,69 +495,17 @@ class SessionState:
         if len(self.session_log) > 200:
             self.session_log = self.session_log[-200:]
         self.append_event("turn_result", {"entry": entry}, turn=self._turn)
-        self._write_history(entry)
         self.maybe_write_atif()
 
-    def _write_history(self, entry):
-        """Write a structured history entry to full_history.jsonl.
-        Outputs > 20 lines are stored in separate files and linked."""
-        import datetime as _datetime
-        output = entry.get("output", "") or ""
-        error = entry.get("error", "") or ""
-        output_lines = output.split("\n") if output else []
-        error_lines = error.split("\n") if error else []
-
-        record = {
-            "turn": self._turn,
-            "timestamp": _datetime.datetime.now().isoformat(),
-            "language": entry.get("language", ""),
-            "input": entry.get("input", "")[:200],
-            "code_executed": entry.get("code", "")[:500],
-            "llm_used": bool(entry.get("llm_generated")),
-            "success": entry.get("success", False),
-            "elapsed_ms": entry.get("elapsed_ms", 0),
-            "type": entry.get("type", "?"),
-            "output": None,
-            "output_file": None,
-            "error_file": None,
-        }
-
-        if len(output_lines) > 20:
-            out_path = os.path.join(self.outputs_dir, f"turn_{self._turn}_out.txt")
-            with open(out_path, "w") as f:
-                f.write(output)
-            record["output"] = "\n".join(output_lines[:3]) + f"\n... ({len(output_lines)} lines total, see output_file)"
-            record["output_file"] = os.path.relpath(out_path, self.session_dir)
-        elif output:
-            record["output"] = output[:2000]
-
-        if len(error_lines) > 20:
-            err_path = os.path.join(self.outputs_dir, f"turn_{self._turn}_err.txt")
-            with open(err_path, "w") as f:
-                f.write(error)
-            record["error_file"] = os.path.relpath(err_path, self.session_dir)
-
-        with open(self.full_history_path, "a") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
     def log_conversation(self, messages):
-        """Write raw LLM conversation messages to the unified history file."""
-        import datetime as _datetime
+        """Append raw LLM conversation messages to the event log."""
         clean = []
         for m in messages:
             if isinstance(m, dict):
                 clean.append({k: v for k, v in m.items()})
-        record = {
-            "type": "llm_conversation",
-            "turn": self._turn,
-            "timestamp": _datetime.datetime.now().isoformat(),
-            "messages": clean,
-        }
         self.append_event(
             "llm_conversation", {"messages": clean}, turn=self._turn + 1
         )
-        with open(self.full_history_path, "a") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def _tail_lines(self, text, n=10):
         if not text:
@@ -701,15 +619,7 @@ class SessionState:
             pass
 
     def save_state(self):
-        """Always persist critical session state so resume works after restart."""
-        os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
-        state_data = {
-            "session_id": os.path.basename(self.session_dir),
-            "current_language": self.current_language,
-            "last_lang": self.last_lang,
-            "vars": {k: v for k, v in self.vars.items()},
-            "active_df": self.active_df,
-        }
+        """Append a state projection event; events.jsonl is authoritative."""
         self.append_event(
             "session_state",
             {
@@ -717,44 +627,28 @@ class SessionState:
                 "last_lang": self.last_lang,
                 "vars": {k: v for k, v in self.vars.items()},
                 "active_df": self.active_df,
-                "state_path": self.state_path,
             },
             turn=self._turn,
         )
-        with open(self.state_path, "w") as f:
-            json.dump(state_data, f, indent=2)
         self.maybe_write_atif()
 
     def save(self):
         if not os.environ.get("SRUN_DEBUG"):
             self.save_state()
             return
-        os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
-        state_data = {
-            "session_id": os.path.basename(self.session_dir),
-            "system": get_system_info(),
-            "workspace": {"files": get_file_meta()},
-            "session": {
-                "vars": {k: v for k, v in self.vars.items()},
-                "active_df": self.active_df,
-                "last_lang": self.last_lang,
-                "current_language": self.current_language,
-                "log": self.session_log[-20:],
-            },
-        }
         self.append_event(
-            "session_state",
+            "session_debug",
             {
+                "system": get_system_info(),
+                "workspace": {"files": get_file_meta()},
                 "current_language": self.current_language,
                 "last_lang": self.last_lang,
                 "vars": {k: v for k, v in self.vars.items()},
                 "active_df": self.active_df,
-                "debug": True,
+                "log": self.session_log[-20:],
             },
             turn=self._turn,
         )
-        with open(self.state_path, "w") as f:
-            json.dump(state_data, f, indent=2)
         self.maybe_write_atif()
 
     def llm_context(self):
@@ -791,8 +685,8 @@ class SessionState:
         if not config.has_llm:
             api_note = ("\nAPI: No API key configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or provider-specific"
                         " env var, or add api_key to ~/.srun/user_config.json. Type /configure for help.")
-        history_note = f"\nHistory: {self.full_history_path} (all turns + LLM conversations)"
-        state_note = f"\nState: {self.state_path} (session metadata)"
+        history_note = f"\nEvents: {self.events_path} (authoritative runtime log)"
+        state_note = f"\nTrajectory: {self.trajectory_path} (derived ATIF projection)"
         mem_note = ""
         if os.path.isfile(self._memory_file):
             mem_note = f"\nMemory: use read_file to load {self._memory_file} — contains user profile, environment learnings, past corrections"

@@ -8,6 +8,8 @@ intent is not downgraded to an approval prompt.
 
 import os
 import re
+from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 
 from .danger import check_danger
 
@@ -46,6 +48,36 @@ def _result(decision, reason, action, source):
     }
 
 
+def grant_matches(grant, action, args=None, now=None):
+    """Check whether an event-sourced permission grant covers an action."""
+    if not isinstance(grant, dict):
+        return False
+    expires_at = grant.get("expires_at")
+    if expires_at:
+        try:
+            expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expires <= (now or datetime.now(timezone.utc)):
+                return False
+        except (ValueError, TypeError):
+            return False
+    granted_action = grant.get("action") or "*"
+    if not fnmatchcase(action, granted_action):
+        return False
+    args = args or {}
+    needle = grant.get("contains")
+    if needle:
+        text = args.get("command") or args.get("path") or ""
+        if str(needle).lower() not in str(text).lower():
+            return False
+    prefix = grant.get("path_prefix")
+    if prefix:
+        path = os.path.abspath(os.path.expanduser(str(args.get("path") or "")))
+        root = os.path.abspath(os.path.expanduser(str(prefix)))
+        if not (path == root or path.startswith(root + os.sep)):
+            return False
+    return True
+
+
 def _path_is_scoped(path, cwd):
     if not isinstance(path, str) or not path.strip():
         return False
@@ -69,9 +101,12 @@ def _check_shell(command):
     return "allow", "safe shell command"
 
 
-def check_action(action, args=None, cwd=None, source="llm"):
+def check_action(action, args=None, cwd=None, source="llm", grants=None):
     """Return allow/ask/deny for one action before it executes."""
     args = args or {}
+    for grant in grants or []:
+        if grant_matches(grant, action, args):
+            return _result("allow", "matching permission grant", action, source)
     if action == "run_command":
         language = args.get("language") or "shell"
         command = args.get("command") or ""

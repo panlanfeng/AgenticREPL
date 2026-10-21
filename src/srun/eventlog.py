@@ -207,6 +207,7 @@ def replay_events(events):
         "last_turn_start": None,
         "last_turn_end": None,
         "repairs": [],
+        "permission_grants": [],
     }
     for event in events:
         event_type = event.get("type")
@@ -235,6 +236,16 @@ def replay_events(events):
             replayed["last_lang"] = payload.get("last_lang", replayed["last_lang"])
             replayed["vars"] = payload.get("vars", replayed["vars"])
             replayed["active_df"] = payload.get("active_df", replayed["active_df"])
+        elif event_type == "permission_grant":
+            grant = payload.get("grant") if isinstance(payload, dict) else None
+            if grant and grant not in replayed["permission_grants"]:
+                replayed["permission_grants"].append(grant)
+        elif event_type == "permission_revoke":
+            grant_id = payload.get("grant_id")
+            replayed["permission_grants"] = [
+                grant for grant in replayed["permission_grants"]
+                if grant.get("grant_id") != grant_id
+            ]
         elif event_type == "turn_result":
             entry = payload.get("entry") or {}
             replayed["session_log"].append(entry)

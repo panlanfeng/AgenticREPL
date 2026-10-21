@@ -161,6 +161,10 @@ contains ATIF steps for user messages, agent responses, tool calls/observations,
 context compaction, and verification results. `events.jsonl` remains the source of
 truth if the trajectory file is missing or stale.
 
+`state.json` and `full_history.jsonl` are no longer written. They were temporary
+legacy files; runtime state, conversation history, and resume data are projections
+of `events.jsonl`.
+
 Verification is logged with both the decision and the evidence:
 
 ```json
@@ -182,6 +186,17 @@ Verification is logged with both the decision and the evidence:
 `evidence_refs` point to `tool_result` and `artifact_snapshot` events in the same
 log, so a verifier or human can inspect the actual commands, outputs, file hashes,
 git diff/status, and file previews that supported the decision.
+
+Permissions are event-sourced as well:
+
+- `policy_decision`: allow/ask/deny and the reason
+- `approval_result`: user response and whether it was approved
+- `permission_grant`: durable scope such as an action, command substring, path prefix, and expiry
+- `permission_revoke`: removes a grant by `grant_id`
+- `tool_blocked`: records an action that never executed
+
+`permission_grants` is a projection rebuilt by replaying these events; policy checks
+consult that projection before applying the hard-coded risk rules.
 
 ## Error auto-repair and psuedo code being translated
 

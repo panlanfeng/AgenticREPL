@@ -455,16 +455,14 @@ class TestCompactionPersistence:
     """Test that compaction snapshots survive restarts and are read back correctly."""
 
     def setup_method(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE, EVENTS_FILE, SESSION_DIR
+        from srun.context import SessionState, EVENTS_FILE, SESSION_DIR
         # Clean the history file for a fresh test
-        if os.path.isfile(FULL_HISTORY_FILE):
-            os.remove(FULL_HISTORY_FILE)
         if os.path.isfile(EVENTS_FILE):
             os.remove(EVENTS_FILE)
         state.reset_session()
 
     def test_write_and_load_compaction_snapshot(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE
+        from srun.context import SessionState, EVENTS_FILE
         # Simulate conversation + compaction
         state._conversation = [
             {"role": "user", "content": "find csv files"},
@@ -475,13 +473,13 @@ class TestCompactionPersistence:
         state._stable_summary = "User worked with CSV files: listed and counted 5 files."
         state._write_compaction_snapshot()
 
-        # Verify file has the snapshot
-        assert os.path.isfile(FULL_HISTORY_FILE), "Snapshot should be written to file"
+        # Verify the event log has the compaction event.
+        assert os.path.isfile(EVENTS_FILE), "Events log should be written"
         import json
-        with open(FULL_HISTORY_FILE) as f:
+        with open(EVENTS_FILE) as f:
             lines = [json.loads(l) for l in f if l.strip()]
-        assert any(e.get("type") == "compaction_snapshot" for e in lines), \
-            "File must contain compaction_snapshot entry"
+        assert any(e.get("type") == "compaction" for e in lines), \
+            "Event log must contain compaction event"
 
         # Simulate restart: summary is restored, conversation starts fresh
         new_state = SessionState()
@@ -491,13 +489,13 @@ class TestCompactionPersistence:
         assert new_state._conversation == state._conversation
 
     def test_load_ignores_other_entry_types(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE
-        # Write some non-compaction entries first
+        from srun.context import SessionState
+        # Write some non-compaction events first.
         state._turn = 1
-        state._write_history({"input": "ls", "output": "file1.txt", "success": True,
-                              "elapsed_ms": 5, "language": "shell", "code": "ls", "type": "fast"})
-        state._write_history({"input": "bad", "output": "error", "success": False,
-                              "elapsed_ms": 10, "language": "shell", "code": "bad", "type": "fast"})
+        state.append_event("turn_result", {"entry": {
+            "turn": 1, "input": "ls", "success": True, "language": "shell",
+        }}, turn=1)
+        state.append_event("unknown_event", {"ignored": True}, turn=1)
         # Now write a compaction snapshot
         state._conversation = [
             {"role": "user", "content": "hello"},
@@ -514,9 +512,7 @@ class TestCompactionPersistence:
         assert new_state._conversation == state._conversation
 
     def test_no_file_loads_clean(self):
-        from srun.context import SessionState, FULL_HISTORY_FILE, EVENTS_FILE
-        if os.path.isfile(FULL_HISTORY_FILE):
-            os.remove(FULL_HISTORY_FILE)
+        from srun.context import SessionState, EVENTS_FILE
         if os.path.isfile(EVENTS_FILE):
             os.remove(EVENTS_FILE)
         new_state = SessionState()

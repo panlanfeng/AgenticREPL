@@ -60,6 +60,21 @@ def test_high_risk_commands_ask_for_llm_but_allow_explicit_user_input():
     assert check_action("run_command", args, source="user")["decision"] == "allow"
 
 
+def test_permission_grant_allows_matching_high_risk_action():
+    args = {"command": "sudo ls", "language": "shell"}
+    grants = [{"grant_id": "g1", "action": "run_command", "contains": "sudo"}]
+    assert check_action("run_command", args, source="llm", grants=grants)["decision"] == "allow"
+
+
+def test_expired_permission_grant_does_not_apply():
+    args = {"command": "sudo ls", "language": "shell"}
+    grants = [{
+        "grant_id": "g1", "action": "run_command", "contains": "sudo",
+        "expires_at": "2000-01-01T00:00:00+00:00",
+    }]
+    assert check_action("run_command", args, source="llm", grants=grants)["decision"] == "ask"
+
+
 def test_file_write_scope(tmp_path):
     inside = {"path": str(tmp_path / "out.txt")}
     outside = {"path": "/etc/passwd"}
@@ -126,3 +141,29 @@ def test_llm_high_risk_command_requires_approval(monkeypatch):
     assert executed == []
     assert any("Blocked by policy" in (m.get("content") or "")
                for m in conv if m.get("role") == "tool")
+
+
+def test_always_approval_creates_permission_grant(monkeypatch):
+    state.reset_session()
+    client = _Client([
+        iter([_Chunk(_Delta(tool_calls=[_tool_call("sudo ls")]))]),
+        iter([_Chunk(_Delta(content="done"))]),
+    ])
+    monkeypatch.setattr(llm_module.llm, "client", client)
+    monkeypatch.setattr(llm_module, "config_get", lambda key: {
+        "max_llm_steps": 4, "verify_results": False,
+    }.get(key, 12))
+
+    executed = []
+    summary, _, _ = llm_module.llm.run(
+        "list privileged files",
+        exec_callback=lambda command, language: (executed.append(command) or (True, "ok")),
+        ask_user_callback=lambda question, details="": "always",
+    )
+    assert summary == "done"
+    assert executed == ["sudo ls"]
+    assert len(state.permission_grants) == 1
+    assert check_action(
+        "run_command", {"command": "sudo ls", "language": "shell"},
+        source="llm", grants=state.permission_grants,
+    )["decision"] == "allow"

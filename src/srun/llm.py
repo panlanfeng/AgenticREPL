@@ -464,7 +464,7 @@ class LLM:
                             lang = args.get("language", "shell")
                             policy = check_action(
                                 "run_command", {"command": cmd, "language": lang},
-                                cwd=os.getcwd(), source="llm",
+                                cwd=os.getcwd(), source="llm", grants=state.permission_grants,
                             )
                             state.append_event(
                                 "policy_decision",
@@ -476,16 +476,24 @@ class LLM:
                             approved = policy["decision"] == "allow"
                             if policy["decision"] == "ask" and ask_user_callback:
                                 response = ask_user_callback(
-                                    f"Allow this action? {policy['reason']}",
+                                    f"Allow this action? {policy['reason']} (yes / no / always)",
                                     f"Command: {cmd}",
                                 )
-                                approved = response.lower() in (
+                                answer = response.lower()
+                                approved = answer in (
                                     "yes", "y", "ok", "proceed", "allow", "approve"
-                                )
+                                ) or answer in ("always", "always allow", "allow always")
+                                grant = None
+                                if answer in ("always", "always allow", "allow always"):
+                                    grant = state.grant_permission(
+                                        "run_command", contains=cmd,
+                                        reason="user approved this command permanently",
+                                    )
                                 state.append_event(
                                     "approval_result",
                                     {"action": "run_command", "approved": approved,
-                                     "response": response, "command": cmd},
+                                     "response": response, "command": cmd,
+                                     "grant_id": (grant or {}).get("grant_id")},
                                     turn=turn_number, round=verify_retries + 1,
                                 )
                             if not approved:
@@ -636,7 +644,7 @@ class LLM:
                                                 print(f"\033[2m  {line}\033[0m")
                                 policy = check_action(
                                     tc.function.name, args=args,
-                                    cwd=os.getcwd(), source="llm",
+                                    cwd=os.getcwd(), source="llm", grants=state.permission_grants,
                                 )
                                 state.append_event(
                                     "policy_decision",
@@ -649,16 +657,25 @@ class LLM:
                                 approved = policy["decision"] == "allow"
                                 if policy["decision"] == "ask" and ask_user_callback:
                                     response = ask_user_callback(
-                                        f"Allow this action? {policy['reason']}",
+                                        f"Allow this action? {policy['reason']} (yes / no / always)",
                                         f"{tc.function.name}: {args}",
                                     )
-                                    approved = response.lower() in (
+                                    answer = response.lower()
+                                    approved = answer in (
                                         "yes", "y", "ok", "proceed", "allow", "approve"
-                                    )
+                                    ) or answer in ("always", "always allow", "allow always")
+                                    grant = None
+                                    if answer in ("always", "always allow", "allow always"):
+                                        grant = state.grant_permission(
+                                            tc.function.name,
+                                            contains=args.get("path"),
+                                            reason="user approved this tool action permanently",
+                                        )
                                     state.append_event(
                                         "approval_result",
                                         {"action": tc.function.name, "approved": approved,
-                                         "response": response},
+                                         "response": response,
+                                         "grant_id": (grant or {}).get("grant_id")},
                                         turn=turn_number, round=verify_retries + 1,
                                     )
                                 if not approved:
